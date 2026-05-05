@@ -9,14 +9,17 @@ namespace pylorak.TinyWall
 {
     internal partial class ApplicationExceptionForm : Form
     {
+        private static readonly char[] PORT_LIST_SEPARATORS = new char[] { ',' };
+
         private List<FirewallExceptionV3> TmpExceptionSettings = new();
+        private readonly bool PreserveSettingsOnSubjectChange = false;
 
         internal List<FirewallExceptionV3> ExceptionSettings
         {
             get { return TmpExceptionSettings; }
         }
 
-        internal ApplicationExceptionForm(FirewallExceptionV3 fwex)
+        internal ApplicationExceptionForm(FirewallExceptionV3 fwex, bool preserveSettingsOnSubjectChange = false)
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
@@ -41,7 +44,7 @@ namespace pylorak.TinyWall
             this.Icon = Resources.Icons.firewall;
             this.btnOK.Image = GlobalInstances.ApplyBtnIcon;
             this.btnCancel.Image = GlobalInstances.CancelBtnIcon;
-
+            this.PreserveSettingsOnSubjectChange = preserveSettingsOnSubjectChange;
             this.TmpExceptionSettings.Add(fwex);
 
             panel1.Location = new System.Drawing.Point(0, 0);
@@ -127,11 +130,12 @@ namespace pylorak.TinyWall
             }
             else if (uwpSubj != null)
             {
-                UwpPackage.Package? package = UwpPackage.FindPackageDetails(uwpSubj.Sid);
-                if (package.HasValue && (package.Value.Tampered != UwpPackage.TamperedState.Unknown))
+                var packageList = new UwpPackageList();
+                var package = packageList.FindPackage(uwpSubj.Sid);
+                if (package.HasValue && (package.Value.Tampered != UwpPackageList.TamperedState.Unknown))
                 {
                     hasSignature = true;
-                    validSignature = (package.Value.Tampered == UwpPackage.TamperedState.No);
+                    validSignature = (package.Value.Tampered == UwpPackageList.TamperedState.No);
                 }
             }
 
@@ -254,7 +258,7 @@ namespace pylorak.TinyWall
                 return string.Empty;
 
             // Check validity
-            string[] elems = res.Split(new char[]{','}, StringSplitOptions.RemoveEmptyEntries);
+            string[] elems = res.Split(PORT_LIST_SEPARATORS, StringSplitOptions.RemoveEmptyEntries);
             res = string.Empty;
             foreach (var e in elems)
             {
@@ -382,11 +386,20 @@ namespace pylorak.TinyWall
 
         private void ReinitFormFromSubject(ExceptionSubject subject)
         {
-            List<FirewallExceptionV3> exceptions = GlobalInstances.AppDatabase.GetExceptionsForApp(subject, true, out _);
-            if (exceptions.Count == 0)
-                return;
+            if (PreserveSettingsOnSubjectChange && (TmpExceptionSettings.Count == 1))
+            {
+                TmpExceptionSettings[0] = Utils.DeepClone(TmpExceptionSettings[0]);
+                TmpExceptionSettings[0].RegenerateId();
+                TmpExceptionSettings[0].Subject = subject;
+            }
+            else
+            {
+                List<FirewallExceptionV3> exceptions = GlobalInstances.AppDatabase.GetExceptionsForApp(subject, true, out _);
+                if (exceptions.Count == 0)
+                    return;
 
-            TmpExceptionSettings = exceptions;
+                TmpExceptionSettings = exceptions;
+            }
 
             UpdateUI();
 

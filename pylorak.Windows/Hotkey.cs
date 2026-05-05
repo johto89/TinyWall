@@ -52,14 +52,11 @@ namespace pylorak.Windows
 
             if (disposing)
             {
-                // Release managed resources
+				// Dispose managed resources - nothing here for now
             }
 
-            // Release unmanaged resources.
-            // Set large fields to null.
+            Application.RemoveMessageFilter(this);
             Unregister();
-
-			// Call Dispose on your base class.
             base.Dispose(disposing);
         }
 

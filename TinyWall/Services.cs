@@ -109,22 +109,30 @@ namespace pylorak.TinyWall
                     col.Width = width;
             }
 
-            List<ListViewItem> itemColl = new List<ListViewItem>();
+            var itemColl = new List<ListViewItem>();
 
             ServiceController[] services = ServiceController.GetServices();
-            for (int i = 0; i < services.Length; ++i)
+            try
             {
-                ServiceController srv = services[i];
-                try
+                for (int i = 0; i < services.Length; ++i)
                 {
-                    ListViewItem li = new ListViewItem(srv.DisplayName);
-                    li.SubItems.Add(srv.ServiceName);
-                    li.SubItems.Add(GetServiceExecutable(srv.ServiceName));
-                    itemColl.Add(li);
+                    ServiceController srv = services[i];
+                    try
+                    {
+                        var li = new ListViewItem(srv.DisplayName);
+                        li.SubItems.Add(srv.ServiceName);
+                        li.SubItems.Add(GetServiceExecutable(srv.ServiceName));
+                        itemColl.Add(li);
+                    }
+                    catch
+                    {
+                    }
                 }
-                catch
-                {
-                }
+            }
+            finally
+            {
+                foreach (var srv in services)
+                    srv.Dispose();
             }
 
             Utils.SetDoubleBuffering(listView, true);
