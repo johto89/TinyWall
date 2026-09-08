@@ -19,7 +19,7 @@ namespace pylorak.TinyWall.Resources {
     // class via a tool like ResGen or Visual Studio.
     // To add or remove a member, edit your .ResX file then rerun ResGen
     // with the /str option, or rebuild your VS project.
-    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "16.0.0.0")]
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute("System.Resources.Tools.StronglyTypedResourceBuilder", "18.0.0.0")]
     [global::System.Diagnostics.DebuggerNonUserCodeAttribute()]
     [global::System.Runtime.CompilerServices.CompilerGeneratedAttribute()]
     internal class Messages {
@@ -160,6 +160,15 @@ namespace pylorak.TinyWall.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Blocked ({0}).
+        /// </summary>
+        internal static string ConnectionsBlockedEntryTemplate {
+            get {
+                return ResourceManager.GetString("ConnectionsBlockedEntryTemplate", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Could not apply firewall settings due to an internal error..
         /// </summary>
         internal static string CouldNotApplySettingsInternalError {
@@ -256,6 +265,60 @@ namespace pylorak.TinyWall.Resources {
         internal static string ErrorCheckingForUpdates {
             get {
                 return ResourceManager.GetString("ErrorCheckingForUpdates", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Blocklist.
+        /// </summary>
+        internal static string FilterGroupBlocklist {
+            get {
+                return ResourceManager.GetString("FilterGroupBlocklist", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Default action.
+        /// </summary>
+        internal static string FilterGroupDefaultAction {
+            get {
+                return ResourceManager.GetString("FilterGroupDefaultAction", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to by 3rd party app.
+        /// </summary>
+        internal static string FilterGroupExternalApp {
+            get {
+                return ResourceManager.GetString("FilterGroupExternalApp", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Port scan.
+        /// </summary>
+        internal static string FilterGroupPortScan {
+            get {
+                return ResourceManager.GetString("FilterGroupPortScan", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Raw socket.
+        /// </summary>
+        internal static string FilterGroupRawSocket {
+            get {
+                return ResourceManager.GetString("FilterGroupRawSocket", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to User rule.
+        /// </summary>
+        internal static string FilterGroupUser {
+            get {
+                return ResourceManager.GetString("FilterGroupUser", resourceCulture);
             }
         }
         
@@ -639,6 +702,33 @@ namespace pylorak.TinyWall.Resources {
         }
         
         /// <summary>
+        ///   Looks up a localized string similar to Automatic.
+        /// </summary>
+        internal static string UiThemeAuto {
+            get {
+                return ResourceManager.GetString("UiThemeAuto", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Dark.
+        /// </summary>
+        internal static string UiThemeDark {
+            get {
+                return ResourceManager.GetString("UiThemeDark", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to Light.
+        /// </summary>
+        internal static string UiThemeLight {
+            get {
+                return ResourceManager.GetString("UiThemeLight", resourceCulture);
+            }
+        }
+        
+        /// <summary>
         ///   Looks up a localized string similar to Related files found
         ///The selected executable could be part of {0}. To ensure that this application can be used without limitations, it is recommended to also unblock some other files..
         /// </summary>
@@ -735,6 +825,15 @@ namespace pylorak.TinyWall.Resources {
         internal static string UpdateAvailableBubble {
             get {
                 return ResourceManager.GetString("UpdateAvailableBubble", resourceCulture);
+            }
+        }
+        
+        /// <summary>
+        ///   Looks up a localized string similar to There was a problem that prevented the update from installing. Try again later..
+        /// </summary>
+        internal static string UpdateInstallError {
+            get {
+                return ResourceManager.GetString("UpdateInstallError", resourceCulture);
             }
         }
         

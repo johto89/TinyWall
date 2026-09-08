@@ -54,6 +54,7 @@ namespace pylorak.TinyWall
     [JsonSerializable(typeof(ControllerSettings))]
     [JsonSerializable(typeof(UpdateDescriptor))]
     [JsonSerializable(typeof(ConfigContainer))]
+    [JsonSerializable(typeof(ServerState))]
     [JsonSerializable(typeof(DatabaseClasses.SubjectIdentity))]
     [JsonSerializable(typeof(DatabaseClasses.Application))]
     [JsonSerializable(typeof(DatabaseClasses.AppDatabase))]
@@ -135,7 +136,7 @@ namespace pylorak.TinyWall
             return Deserialize(memoryStream, defInstance);
         }
 
-        public static T DeserializeFromFile<T>(string filepath, T defInstance, bool readOnlySource = false) where  T : ISerializable<T>
+        public static T DeserializeFromFile<T>(string filepath, T defInstance, bool readOnlySource = false) where T : ISerializable<T>
         {
             try
             {
@@ -231,7 +232,7 @@ namespace pylorak.TinyWall
             typeof(UpdateModule),
             typeof(UpdateDescriptor),
         };
-        
+
         [Obsolete("XML serializer kept around for importing pre-3.0 configs.")]
         public static T DeserializeDC<T>(Stream stream)
         {

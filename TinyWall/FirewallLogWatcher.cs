@@ -10,17 +10,41 @@ namespace pylorak.TinyWall
 {
     internal class FirewallLogWatcher : Disposable
     {
-        //private readonly string FIREWALLLOG_PATH = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), @"LogFiles\Firewall\pfirewall.log");
+        public enum EventLogEvent
+        {
+            ALLOWED_LISTEN = 5154,
+            ALLOWED_CONNECTION = 5156,
+            ALLOWED_LOCAL_BIND = 5158,
+            BLOCKED_LISTEN = 5155,
+            BLOCKED_CONNECTION = 5157,
+            BLOCKED_PACKET = 5152,
+            BLOCKED_LOCAL_BIND = 5159
+        }
+
+        internal class LogEntry
+        {
+            public DateTime Timestamp;
+            public EventLogEvent Event;
+            public uint ProcessId;
+            public Protocol Protocol;
+            public RuleDirection Direction;
+            public string? LocalIp;
+            public string? RemoteIp;
+            public int LocalPort;
+            public int RemotePort;
+            public string? AppPath;
+        }
+
         private readonly EventLogWatcher LogWatcher;
 
-        public delegate void NewLogEntryDelegate(FirewallLogWatcher sender, FirewallLogEntry entry);
+        public delegate void NewLogEntryDelegate(FirewallLogWatcher sender, LogEntry entry);
         public event NewLogEntryDelegate? NewLogEntry;
 
         protected override void Dispose(bool disposing)
         {
             if (IsDisposed)
-                return; 
-            
+                return;
+
             if (disposing)
             {
                 // Release managed resources
@@ -43,14 +67,13 @@ namespace pylorak.TinyWall
         {
             // Create event notifier
             EventLogQuery evquery = new("Security", PathType.LogName, "*[System[(EventID=5154 or EventID=5155 or EventID=5157 or EventID=5159 or EventID=5156 or EventID=5158)]]");
-            LogWatcher = new EventLogWatcher(evquery);
-            LogWatcher.Enabled = false;
+            LogWatcher = new EventLogWatcher(evquery) { Enabled = false };
             LogWatcher.EventRecordWritten += new EventHandler<EventRecordWrittenEventArgs>(LogWatcher_EventRecordWritten);
         }
 
         internal bool Enabled
         {
-            get 
+            get
             {
                 return LogWatcher.Enabled;
             }
@@ -69,11 +92,13 @@ namespace pylorak.TinyWall
             }
         }
 
-        private static FirewallLogEntry ParseLogEntry(EventRecordWrittenEventArgs e)
+        private static LogEntry ParseLogEntry(EventRecordWrittenEventArgs e)
         {
-            var entry = new FirewallLogEntry();
-            entry.Timestamp = DateTime.Now;
-            entry.Event = (EventLogEvent)e.EventRecord.Id;
+            var entry = new LogEntry
+            {
+                Timestamp = DateTime.Now,
+                Event = (EventLogEvent)e.EventRecord.Id
+            };
 
             switch (e.EventRecord.Id)
             {
@@ -175,9 +200,11 @@ namespace pylorak.TinyWall
 
         private static void AuditSetSystemPolicy(Guid guid, bool success, bool failure)
         {
-            var pol = new NativeMethods.AUDIT_POLICY_INFORMATION();
-            pol.AuditCategoryGuid = guid;
-            pol.AuditSubCategoryGuid = guid;
+            var pol = new NativeMethods.AUDIT_POLICY_INFORMATION
+            {
+                AuditCategoryGuid = guid,
+                AuditSubCategoryGuid = guid
+            };
             if (success || failure)
             {
                 if (success)

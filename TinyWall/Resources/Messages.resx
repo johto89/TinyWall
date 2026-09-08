@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -390,5 +390,39 @@ The selected executable could be part of {0}. To ensure that this application ca
   </data>
   <data name="SubjectTypeUwpApp" xml:space="preserve">
     <value>UWP Package</value>
+  </data>
+  <data name="UiThemeLight" xml:space="preserve">
+    <value>Light</value>
+  </data>
+  <data name="UiThemeDark" xml:space="preserve">
+    <value>Dark</value>
+  </data>
+  <data name="UiThemeAuto" xml:space="preserve">
+    <value>Automatic</value>
+  </data>
+  <data name="UpdateInstallError" xml:space="preserve">
+    <value>There was a problem that prevented the update from installing. Try again later.</value>
+  </data>
+  <data name="ConnectionsBlockedEntryTemplate" xml:space="preserve">
+    <value>Blocked ({0})</value>
+    <comment>Shown in the "State" column of the Connections window for blocked applications. {0} will be replaced by one of the "FilterGroup*" strings.</comment>
+  </data>
+  <data name="FilterGroupDefaultAction" xml:space="preserve">
+    <value>Default action</value>
+  </data>
+  <data name="FilterGroupPortScan" xml:space="preserve">
+    <value>Port scan</value>
+  </data>
+  <data name="FilterGroupRawSocket" xml:space="preserve">
+    <value>Raw socket</value>
+  </data>
+  <data name="FilterGroupBlocklist" xml:space="preserve">
+    <value>Blocklist</value>
+  </data>
+  <data name="FilterGroupUser" xml:space="preserve">
+    <value>User rule</value>
+  </data>
+  <data name="FilterGroupExternalApp" xml:space="preserve">
+    <value>by 3rd party app</value>
   </data>
 </root>

@@ -127,15 +127,11 @@ namespace pylorak.Windows.Services
                 actionCount = 2;
 
                 // Set up the restart action
-                var action1 = new SC_ACTION();
-                action1.Type = SC_ACTION_TYPE.SC_ACTION_RESTART;
-                action1.Delay = delay;
+                var action1 = new SC_ACTION { Type = SC_ACTION_TYPE.SC_ACTION_RESTART, Delay = delay };
                 actionPtr.MarshalFromStruct(action1, 0);
 
                 // Set up the "do nothing" action
-                var action2 = new SC_ACTION();
-                action2.Type = SC_ACTION_TYPE.SC_ACTION_NONE;
-                action2.Delay = delay;
+                var action2 = new SC_ACTION { Type = SC_ACTION_TYPE.SC_ACTION_NONE, Delay = delay };
                 actionPtr.MarshalFromStruct(action2, SC_ACTION_SIZE);
             }
             else
@@ -143,28 +139,30 @@ namespace pylorak.Windows.Services
                 actionCount = 1;
 
                 // Set up the "do nothing" action
-                var action1 = new SC_ACTION();
-                action1.Type = SC_ACTION_TYPE.SC_ACTION_NONE;
-                action1.Delay = delay;
+                var action1 = new SC_ACTION { Type = SC_ACTION_TYPE.SC_ACTION_NONE, Delay = delay };
                 actionPtr.MarshalFromStruct(action1);
             }
 
             // Set up the failure actions
-            var failureActions = new SERVICE_FAILURE_ACTIONS();
-            failureActions.dwResetPeriod = 0;
-            failureActions.cActions = (uint)actionCount;
-            failureActions.lpsaActions = actionPtr.DangerousGetHandle();
-            failureActions.lpRebootMsg = null;
-            failureActions.lpCommand = null;
+            var failureActions = new SERVICE_FAILURE_ACTIONS
+            {
+                dwResetPeriod = 0,
+                cActions = (uint)actionCount,
+                lpsaActions = actionPtr.DangerousGetHandle(),
+                lpRebootMsg = null,
+                lpCommand = null
+            };
             using var failureActionsPtr = SafeHGlobalHandle.FromManagedStruct(failureActions);
 
             // Make the change
-            int changeResult = NativeMethods.ChangeServiceConfig2(
+            if (!NativeMethods.ChangeServiceConfig2(
                 service,
                 ServiceConfig2InfoLevel.SERVICE_CONFIG_FAILURE_ACTIONS,
-                failureActionsPtr.DangerousGetHandle());
-            if (changeResult == 0)
-                throw new Win32Exception();
+                failureActionsPtr.DangerousGetHandle()))
+            {
+                var err_code = Marshal.GetLastWin32Error();
+                throw new Win32Exception(err_code, $"ChangeServiceConfig2 failed with error {err_code}.");
+            }
         }
 
         [SecurityPermission(SecurityAction.LinkDemand, UnmanagedCode = true)]

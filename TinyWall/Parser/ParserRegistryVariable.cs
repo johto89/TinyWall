@@ -8,6 +8,8 @@ namespace pylorak.TinyWall.Parser
     {
         internal const string OPENING_TAG = "{reg:";
 
+        public ParserRegistryVariable(int start) : base(start) { }
+
         internal override string Resolve(string str)
         {
             try
@@ -36,7 +38,7 @@ namespace pylorak.TinyWall.Parser
         internal static bool IsStartTag(string str, int pos)
         {
             int tagLen = OpeningTagLength;
-            return (str.Length > pos + tagLen) && (string.CompareOrdinal(OPENING_TAG, 0, str, pos, tagLen)==0);
+            return (str.Length > pos + tagLen) && (string.CompareOrdinal(OPENING_TAG, 0, str, pos, tagLen) == 0);
         }
 
         internal override string GetOpeningTag()

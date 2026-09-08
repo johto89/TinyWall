@@ -8,6 +8,8 @@ namespace pylorak.TinyWall.Parser
     {
         internal const string OPENING_TAG = "{folder:";
 
+        public ParserFolderVariable(int start) : base(start) { }
+
         internal override string Resolve(string str)
         {
             try
@@ -18,7 +20,7 @@ namespace pylorak.TinyWall.Parser
                     "pf" or "pf64" => ProgramFilesx64(),
                     "pf32" => ProgramFilesx86(),
                     "sys32" => NativeSys32(),
-                    "twpath" => Path.GetDirectoryName(Utils.ExecutablePath),
+                    "twpath" => AppPaths.ExecutableFolder,
                     "LocalAppData" => Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                     "windows" => Environment.GetEnvironmentVariable("windir"),
                     _ => str,

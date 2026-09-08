@@ -226,9 +226,6 @@
   <data name="Success" xml:space="preserve">
     <value>Sikeresen végrehajtva.</value>
   </data>
-  <data name="OtherSettingsPreventEffect" xml:space="preserve">
-    <value>A művelet sikerült, de más beállítások akadályozzák a teljes hatást.</value>
-  </data>
   <data name="OperationFailed" xml:space="preserve">
     <value>Végrehajtás sikertelen..</value>
   </data>
@@ -363,20 +360,6 @@ A kiválasztott fájl a következő része lehet: {0}. Ahhoz hogy az alkalmazás
     <value>{0}, talán kompromittált</value>
     <comment>Exception details window banner text. Param0 is name of application.</comment>
   </data>
-  <data name="ToastInputNeeded" xml:space="preserve">
-    <value>További bevitel szükséges
-az új tűzfalkivétel hozzáadásához.</value>
-    <comment>First line is bolder. Keep lines short because words do not wrap.</comment>
-  </data>
-  <data name="ToastAppWhitelisted" xml:space="preserve">
-    <value>Új tűzfalkivételek hozzáadva.</value>
-    <comment>Keep line short because words do not wrap.</comment>
-  </data>
-  <data name="ToastWhitelistFailed" xml:space="preserve">
-    <value>A tűzfalkivétel hozzáadása nem sikerült.
-Egy újbóli probálkozás sikerhez vezethet.</value>
-    <comment>First line is bolder. Keep lines short because words do not wrap.</comment>
-  </data>
   <data name="CouldNotApplySettingsInternalError" xml:space="preserve">
     <value>A tűzfalbeállítások módosítása egy belső hiba miatt nem sikerült.</value>
   </data>
@@ -396,5 +379,38 @@ Egy újbóli probálkozás sikerhez vezethet.</value>
   </data>
   <data name="SubjectTypeUwpApp" xml:space="preserve">
     <value>UWP app</value>
+  </data>
+  <data name="UiThemeLight" xml:space="preserve">
+    <value>Világos</value>
+  </data>
+  <data name="UiThemeDark" xml:space="preserve">
+    <value>Sötét</value>
+  </data>
+  <data name="UiThemeAuto" xml:space="preserve">
+    <value>Rendszerbeállítás</value>
+  </data>
+  <data name="UpdateInstallError" xml:space="preserve">
+    <value>A frissítés telepítése egy probléma miatt meghiúsult. Próbálkozzon újra később.</value>
+  </data>
+  <data name="ConnectionsBlockedEntryTemplate" xml:space="preserve">
+    <value>Blokkolva ({0})</value>
+  </data>
+  <data name="FilterGroupDefaultAction" xml:space="preserve">
+    <value>Alapszabály</value>
+  </data>
+  <data name="FilterGroupPortScan" xml:space="preserve">
+    <value>Portszkennelés</value>
+  </data>
+  <data name="FilterGroupRawSocket" xml:space="preserve">
+    <value>Nyers socket</value>
+  </data>
+  <data name="FilterGroupBlocklist" xml:space="preserve">
+    <value>Blokkoló-lista</value>
+  </data>
+  <data name="FilterGroupUser" xml:space="preserve">
+    <value>Felhasználói szabály</value>
+  </data>
+  <data name="FilterGroupExternalApp" xml:space="preserve">
+    <value>külső program által</value>
   </data>
 </root>

@@ -1,6 +1,8 @@
-﻿using System;
-using System.Drawing;
+﻿using DarkModeForms;
+using pylorak.Windows;
+using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -13,7 +15,9 @@ namespace pylorak.TinyWall
     {
         private Thread? SearcherThread;
         private bool RunSearch;
-        private Size IconSize = new ((int)Math.Round(16 * Utils.DpiScalingFactor), (int)Math.Round(16 * Utils.DpiScalingFactor));
+        private Size IconSize = new((int)Math.Round(16 * Utils.DpiScalingFactor), (int)Math.Round(16 * Utils.DpiScalingFactor));
+        private readonly DarkModeCS? DarkMode;
+        private readonly WmPaintFilter? ListRepaintFilter;
 
         internal List<FirewallExceptionV3> SelectedExceptions { get; } = new List<FirewallExceptionV3>();
 
@@ -21,6 +25,11 @@ namespace pylorak.TinyWall
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
+            if (Utils.IsDarkModeActive(ActiveConfig.Controller))
+            {
+                this.DarkMode = new(this, false) { ColorMode = DarkModeCS.DisplayMode.DarkMode };
+                this.ListRepaintFilter = new WmPaintFilter(list);
+            }
             this.IconList.ImageSize = IconSize;
             this.Icon = Resources.Icons.firewall;
             this.btnCancel.Image = GlobalInstances.CancelBtnIcon;
@@ -39,9 +48,11 @@ namespace pylorak.TinyWall
                 list.Items.Clear();
 
                 RunSearch = true;
-                SearcherThread = new Thread(SearcherWorkerMethod);
-                SearcherThread.Name = "AppFinder";
-                SearcherThread.IsBackground = true;
+                SearcherThread = new Thread(SearcherWorkerMethod)
+                {
+                    Name = "AppFinder",
+                    IsBackground = true
+                };
                 SearcherThread.Start();
             }
             else
@@ -53,7 +64,7 @@ namespace pylorak.TinyWall
 
         private sealed class SearchResults
         {
-            private readonly Dictionary<DatabaseClasses.Application, List<ExecutableSubject>> _List = new ();
+            private readonly Dictionary<DatabaseClasses.Application, List<ExecutableSubject>> _List = new();
 
             public void Clear()
             {
@@ -78,7 +89,7 @@ namespace pylorak.TinyWall
 
             public List<DatabaseClasses.Application> GetFoundApps()
             {
-                List<DatabaseClasses.Application> ret = new ();
+                List<DatabaseClasses.Application> ret = new();
                 ret.AddRange(_List.Keys);
                 return ret;
             }
@@ -161,7 +172,7 @@ namespace pylorak.TinyWall
             {
                 // Update status
                 RunSearch = false;
-                this.BeginInvoke((MethodInvoker)delegate()
+                this.BeginInvoke((MethodInvoker)delegate ()
                 {
                     try
                     {
@@ -170,7 +181,8 @@ namespace pylorak.TinyWall
                         btnStartDetection.Image = GlobalInstances.ApplyBtnIcon;
                         btnStartDetection.Enabled = true;
                     }
-                    catch {
+                    catch
+                    {
                         // Ignore if the form was already disposed
                     }
                 });
@@ -189,7 +201,7 @@ namespace pylorak.TinyWall
             if (now - LastEnterDoSearchPath > TimeSpan.FromMilliseconds(500))
             {
                 LastEnterDoSearchPath = now;
-                this.BeginInvoke((MethodInvoker)delegate()
+                this.BeginInvoke((MethodInvoker)delegate ()
                 {
                     lblStatus.Text = string.Format(CultureInfo.CurrentCulture, Resources.Messages.SearchingPath, path);
                 });
@@ -211,12 +223,12 @@ namespace pylorak.TinyWall
                         // Try to match file
                         ExecutableSubject subject = (ExecutableSubject)ExceptionSubject.Construct(file, null);
                         DatabaseClasses.Application? app = db.TryGetApp(subject, out FirewallExceptionV3? dummyFwex, false);
-                        if ((app != null)  && (!subject.IsSigned || subject.CertValid))
+                        if ((app != null) && (!subject.IsSigned || subject.CertValid))
                         {
                             SearchResult.AddEntry(app, subject);
 
                             // We have a match. This file belongs to a known application!
-                            this.BeginInvoke((MethodInvoker)delegate()
+                            this.BeginInvoke((MethodInvoker)delegate ()
                             {
                                 AddRecognizedAppToList(app, subject.ExecutablePath);
                             });
@@ -256,10 +268,12 @@ namespace pylorak.TinyWall
                     IconList.Images.Add(app.Name, Utils.GetIconContained(iconPath, IconSize.Width, IconSize.Height));
             }
 
-            var li = new ListViewItem(app.Name);
-            li.ImageKey = app.Name;
-            li.Tag = app;
-            li.Checked = app.HasFlag("TWUI:Recommended");
+            var li = new ListViewItem(app.Name)
+            {
+                ImageKey = app.Name,
+                Tag = app,
+                Checked = app.HasFlag("TWUI:Recommended")
+            };
 
             list.Items.Add(li);
         }

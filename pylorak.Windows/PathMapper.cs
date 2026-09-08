@@ -22,6 +22,9 @@ namespace pylorak.Windows
 
     public sealed class PathMapper : Disposable
     {
+        public const int SHORT_MAX_PATH_CHARS = 260;
+        public const int LONG_MAX_PATH_CHARS = 32768;
+
         [SuppressUnmanagedCodeSecurity]
         private static class NativeMethods
         {
@@ -118,10 +121,8 @@ namespace pylorak.Windows
 
         private static List<DriveCache> RebuildCacheImpl_1()
         {
-            const int MAX_PATH = 260;
-
-            var sb = new StringBuilder(MAX_PATH);
-            var buf = new char[MAX_PATH];
+            var sb = new StringBuilder(SHORT_MAX_PATH_CHARS);
+            var buf = new char[SHORT_MAX_PATH_CHARS];
             var newCache = new List<DriveCache>();
 
             foreach (var vol in FindVolumeSafeHandle.EnumerateVolumes())
@@ -252,11 +253,11 @@ namespace pylorak.Windows
                 {
                     try
                     {
-                    // We have two different methods to discover drives and volumes.
-                    // We chain them and execute both because each one has limitations:
-                    // RebuildCacheImpl_1 - Cannot discover some types of drives, such as those created by ImDisk
-                    // RebuildCacheImpl_2 - Cannot discover devices mounted to mount points
-                    var tmpCache = RebuildCacheImpl_1();
+                        // We have two different methods to discover drives and volumes.
+                        // We chain them and execute both because each one has limitations:
+                        // RebuildCacheImpl_1 - Cannot discover some types of drives, such as those created by ImDisk
+                        // RebuildCacheImpl_2 - Cannot discover devices mounted to mount points
+                        var tmpCache = RebuildCacheImpl_1();
                         try { tmpCache = RebuildCacheImpl_2(tmpCache); } catch { }
                         Cache = tmpCache.ToArray();
                     }

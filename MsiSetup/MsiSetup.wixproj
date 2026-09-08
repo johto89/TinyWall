@@ -6,12 +6,21 @@
     <ProductVersion>3.5</ProductVersion>
     <ProjectGuid>{e864e1f9-3383-454f-bb6f-d89ee97c518b}</ProjectGuid>
     <SchemaVersion>2.0</SchemaVersion>
-    <OutputName>TinyWallInstaller</OutputName>
+    <OutputName>TinyWall</OutputName>
     <OutputType>Package</OutputType>
     <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' AND '$(MSBuildExtensionsPath32)' != '' ">$(MSBuildExtensionsPath32)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
     <WixTargetsPath Condition=" '$(WixTargetsPath)' == '' ">$(MSBuildExtensionsPath)\Microsoft\WiX\v3.x\Wix.targets</WixTargetsPath>
     <IncludeSearchPaths>
     </IncludeSearchPaths>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Platform)' == 'x86' ">
+	<OutputName>$(OutputName)_x86</OutputName>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Platform)' == 'x64' ">
+	<OutputName>$(OutputName)_x64</OutputName>
+  </PropertyGroup>
+  <PropertyGroup Condition=" '$(Platform)' == 'arm64' ">
+	<OutputName>$(OutputName)_arm64</OutputName>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x86' ">
     <OutputPath>bin\$(Configuration)\</OutputPath>
@@ -33,7 +42,18 @@
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
   </PropertyGroup>
-  <ItemGroup>
+	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|arm64' ">
+		<DefineConstants>Debug</DefineConstants>
+		<OutputPath>bin\$(Configuration)\</OutputPath>
+		<IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+		<SuppressIces>
+		</SuppressIces>
+	</PropertyGroup>
+	<PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|arm64' ">
+		<OutputPath>bin\$(Configuration)\</OutputPath>
+		<IntermediateOutputPath>obj\$(Platform)\$(Configuration)\</IntermediateOutputPath>
+	</PropertyGroup>
+	<ItemGroup>
     <Compile Include="CustomWelcomeDlg.wxs" />
     <Compile Include="RemoteWarnDlg.wxs" />
     <Compile Include="Product.wxs" />

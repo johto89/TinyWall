@@ -1,6 +1,48 @@
 TinyWall Changelog
 ---------------------
 
+3.5.2 - Maintenance release (xx.xx.xx.)
+- Show block reason in Connections window
+- Security hardening of the built-in updater
+- Increase password hashing complexity
+- Rewrite of hosts-file related functions for more robustness
+- New mitigation for tray icon sometimes not showing up on boot
+- Try removing leftover service if one is found before installation (possible workaround for Revo users)
+- Fix uninstall fails if TinyWall is locked instead of showing password entry
+- Fix misaligned drawing of focus highlight in dark mode lists
+- Fix discolored context menu icons in dark mode
+- Remove "Search on ProcessLibrary", site is practically dead
+- Make ESC key cancel Application Finder dialog too
+- Add copy icon to connections list context menu
+- Add "Copy path" and "Open folder" to connections list context menu
+- Correct border transparency of external app icons in dark mode
+- Better sizing of external app icons in dark mode
+- Develtool UI replaced by CLI for automated builds
+- If Windows Defender rule is enabled in UI, allow its protection updates even if Windows Update is blocked (KloweSa)
+
+---------------------
+
+3.5.1 - Important update (07.06.2026.)
+- Add dark mode support for GUI
+- Add support for Windows on ARM devices
+- Don't create "All applications" rule if user does not select an application
+- Preserve other rule settings when editing application in an existing rule (pepak)
+- Fix use-after-free when enumerating WFP filters (kimstik)
+- Fix multiple memory leaks (kimstik)
+- Fix learned rules not saved when auto-learn is active during shutdown (giejck18470)
+- Fix startup crash if netevent collection is disabled on the system
+- Fix blocked apps not showing if netevent collection is disabled on the system
+- Fix possible crash during process snapshots if an executable has long file name component
+- Fix possible crash during icon loading of external files
+- Fix missing WSL2 special exception
+- Fix raw socket allow rules may not get installed
+- Fix updated application database only reflected in GUI after a restart
+- Remove language-specific layout customizations
+- Add Ukrainian localization (prodbysanya)
+- Update Korean localization (Jaehyung L.)
+
+---------------------
+
 3.4.1 - Maintenance release (06.04.2025.)
 - Only enumerate UWP packages on system if actually needed
 - Add Last Modified column to application exceptions list

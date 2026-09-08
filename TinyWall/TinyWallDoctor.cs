@@ -8,6 +8,7 @@ using pylorak.Windows;
 using pylorak.Windows.Services;
 using pylorak.Windows.WFP;
 using pylorak.Windows.WFP.Interop;
+using System.IO;
 
 namespace pylorak.TinyWall
 {
@@ -60,11 +61,19 @@ namespace pylorak.TinyWall
                 // Run installers
                 try
                 {
-                    ManagedInstallerClass.InstallHelper(new string[] { "/i", Utils.ExecutablePath });
+                    ManagedInstallerClass.InstallHelper(new string[] { "/i", AppPaths.ExecutablePath });
                 }
-                catch(Exception e)
+                catch
                 {
-                    Utils.LogException(e, logContext);
+                    // One common cause why service installation fails is the service already being present
+                    // (for reasons such as manual deletion or crappy 3rd party uninstallers).
+                    // As a workaround we try uninstalling and reinstalling the service once.
+
+                    try { ManagedInstallerClass.InstallHelper(new string[] { "/u", AppPaths.ExecutablePath }); }
+                    catch { }   // errors ignored on purpose
+
+                    try { ManagedInstallerClass.InstallHelper(new string[] { "/i", AppPaths.ExecutablePath }); }
+                    catch (Exception e) { Utils.LogException(e, logContext); }
                 }
 
                 // Ensure dependencies
@@ -77,7 +86,7 @@ namespace pylorak.TinyWall
                     if (sc.Status == ServiceControllerStatus.Stopped)
                     {
                         sc.Start();
-                        sc.WaitForStatus(ServiceControllerStatus.Running, System.TimeSpan.FromSeconds(5));
+                        sc.WaitForStatus(ServiceControllerStatus.Running, System.TimeSpan.FromSeconds(15));
                     }
                 }
                 catch (Exception e)
@@ -91,7 +100,7 @@ namespace pylorak.TinyWall
                 // We are not running as admin.
                 try
                 {
-                    using Process p = Utils.StartProcess(Utils.ExecutablePath, "/install", true);
+                    using Process p = Utils.StartProcess(AppPaths.ExecutablePath, "/install", true);
                     p.WaitForExit();
                     return (p.ExitCode == 0);
                 }
@@ -105,7 +114,7 @@ namespace pylorak.TinyWall
             return true;
         }
 
-        internal static int Uninstall()
+        internal static bool Uninstall()
         {
             using (var frm = new System.Windows.Forms.Form())
             {
@@ -118,7 +127,7 @@ namespace pylorak.TinyWall
                 frm.Location = new System.Drawing.Point(rect.Bottom + 10, rect.Right + 10);
                 frm.Show();
                 frm.Focus();
-                frm.BringToFront(); 
+                frm.BringToFront();
                 frm.TopMost = true;
 
                 if (System.Windows.Forms.MessageBox.Show(frm,
@@ -127,7 +136,7 @@ namespace pylorak.TinyWall
                     System.Windows.Forms.MessageBoxButtons.YesNo,
                     System.Windows.Forms.MessageBoxIcon.Exclamation) != System.Windows.Forms.DialogResult.Yes)
                 {
-                    return -1;
+                    return false;
                 }
             }
 
@@ -149,25 +158,25 @@ namespace pylorak.TinyWall
                             twController.TryUnlockServer(pf.PassHash);
                         }
                         else
-                            return -1;
+                            return false;
                     }
 
                     // Stop server
                     twController.RequestServerStop();
                     DateTime startTs = DateTime.Now;
-                    while (!IsServiceStopped() && ((DateTime.Now - startTs) < TimeSpan.FromSeconds(5)))
+                    while (!IsServiceStopped() && ((DateTime.Now - startTs) < TimeSpan.FromSeconds(15)))
                         System.Threading.Thread.Sleep(200);
                     if (!IsServiceStopped())
                     {
                         Utils.Log("Failed to stop service during uninstall.", Utils.LOG_ID_INSTALLER);
-                        return -1;
+                        return false;
                     }
                 }
             }
             catch (Exception e)
             {
                 Utils.LogException(e, Utils.LOG_ID_INSTALLER);
-                return -1;
+                return false;
             }
 
             // Terminate remaining TinyWall processes (e.g. controller)
@@ -207,7 +216,7 @@ namespace pylorak.TinyWall
             catch (Exception e)
             {
                 Utils.LogException(e, Utils.LOG_ID_INSTALLER);
-                return -1;
+                return false;
             }
 
 
@@ -224,17 +233,19 @@ namespace pylorak.TinyWall
             {
                 // Put back the user's original hosts file
                 using HostsFileManager hosts = new();
-                hosts.DisableHostsFile();
+                hosts.DisableCustomHostsFile();
             }
             catch (Exception e) { Utils.LogException(e, Utils.LOG_ID_INSTALLER); }
+
+            AppPaths.EmptyFolder(AppPaths.PrivateTemp, true);
 
             try
             {
-                ManagedInstallerClass.InstallHelper(new string[] { "/u", Utils.ExecutablePath });
+                ManagedInstallerClass.InstallHelper(new string[] { "/u", AppPaths.ExecutablePath });
             }
             catch (Exception e) { Utils.LogException(e, Utils.LOG_ID_INSTALLER); }
 
-            return 0;
+            return true;
         }
 
         internal static void EnsureHealth(string logContext)
@@ -295,7 +306,7 @@ namespace pylorak.TinyWall
                 td.Settings.MultipleInstances = _TASK_INSTANCES_POLICY.TASK_INSTANCES_PARALLEL;
                 td.Triggers.Create(_TASK_TRIGGER_TYPE2.TASK_TRIGGER_LOGON);
                 var act = (IExecAction)td.Actions.Create(_TASK_ACTION_TYPE.TASK_ACTION_EXEC);
-                act.Path = Utils.ExecutablePath;
+                act.Path = AppPaths.ExecutablePath;
                 taskService.GetFolder(@"\").RegisterTaskDefinition(CONTROLLER_START_TASKSCH_NAME, td, TASK_CREATE_OR_UPDATE, null, null, _TASK_LOGON_TYPE.TASK_LOGON_INTERACTIVE_TOKEN);
             }
             catch (System.Runtime.InteropServices.COMException e)

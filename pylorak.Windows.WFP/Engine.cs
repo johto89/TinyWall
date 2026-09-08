@@ -125,8 +125,7 @@ namespace pylorak.Windows.WFP
 
         private void EngineOptionSetValue(Interop.FWPM_ENGINE_OPTION opt, uint val)
         {
-            var vs = new Interop.FWP_VALUE0();
-            vs.type = Interop.FWP_DATA_TYPE.FWP_UINT32;
+            var vs = new Interop.FWP_VALUE0 { type = Interop.FWP_DATA_TYPE.FWP_UINT32 };
             vs.value.uint32 = val;
 
             uint err = NativeMethods.FwpmEngineSetOption0(_nativeEngineHandle, opt, ref vs);
@@ -198,17 +197,16 @@ namespace pylorak.Windows.WFP
 
         public FilterEnumerator EnumerateFilters(bool getFilterConditions, Guid provider, Guid layer)
         {
-            var providerGuidHandle = SafeHGlobalHandle.FromStruct(provider);
             var template = new Interop.FWPM_FILTER_ENUM_TEMPLATE0
             {
-                providerKey = providerGuidHandle.DangerousGetHandle(),
+                providerKey = IntPtr.Zero,  // will be filled-in by FilterKeyEnumerator
                 layerKey = layer,
                 flags = Interop.FilterEnumTemplateFlags.FWP_FILTER_ENUM_FLAG_INCLUDE_BOOTTIME | Interop.FilterEnumTemplateFlags.FWP_FILTER_ENUM_FLAG_INCLUDE_DISABLED,
                 numFilterConditions = 0,
                 actionMask = 0xFFFFFFFFu,
             };
 
-            return new FilterEnumerator(this, template, getFilterConditions, providerGuidHandle);
+            return new FilterEnumerator(this, template, getFilterConditions, provider);
         }
 
         public FilterKeyEnumerator EnumerateFilterKeys()
@@ -218,17 +216,16 @@ namespace pylorak.Windows.WFP
 
         public FilterKeyEnumerator EnumerateFilterKeys(Guid provider, Guid layer)
         {
-            var providerGuidHandle = SafeHGlobalHandle.FromStruct(provider);
             var template = new Interop.FWPM_FILTER_ENUM_TEMPLATE0
             {
-                providerKey = providerGuidHandle.DangerousGetHandle(),
+                providerKey = IntPtr.Zero,  // will be filled-in by FilterKeyEnumerator
                 layerKey = layer,
                 flags = Interop.FilterEnumTemplateFlags.FWP_FILTER_ENUM_FLAG_INCLUDE_BOOTTIME | Interop.FilterEnumTemplateFlags.FWP_FILTER_ENUM_FLAG_INCLUDE_DISABLED,
                 numFilterConditions = 0,
                 actionMask = 0xFFFFFFFFu,
             };
 
-            return new FilterKeyEnumerator(this, template, providerGuidHandle);
+            return new FilterKeyEnumerator(this, template, provider);
         }
 
         public Guid RegisterProvider(ref Interop.FWPM_PROVIDER0 provider)
@@ -252,7 +249,7 @@ namespace pylorak.Windows.WFP
 
             uint error = NativeMethods.FwpmSubLayerAdd0(_nativeEngineHandle, ref nativeStruct, IntPtr.Zero);
             if (0 != error)
-                throw new WfpException(error, "FwpmProviderAdd0");
+                throw new WfpException(error, "FwpmSubLayerAdd0");
 
             return sublayer.SublayerKey;
         }
@@ -281,7 +278,7 @@ namespace pylorak.Windows.WFP
         {
             uint error = NativeMethods.FwpmSubLayerDeleteByKey0(_nativeEngineHandle, ref subLayerKey);
             if (0 != error)
-                throw new WfpException(error, "FwpmProviderDeleteByKey0");
+                throw new WfpException(error, "FwpmSubLayerDeleteByKey0");
         }
 
         public void UnregisterFilter(Guid filterKey)

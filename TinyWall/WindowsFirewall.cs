@@ -14,9 +14,9 @@ namespace pylorak.TinyWall
         private static readonly string[] WhitelistedApps = new string[]
         {
 #if DEBUG
-            Path.Combine(Path.GetDirectoryName(Utils.ExecutablePath), "TinyWall.vshost.exe"),
+            Path.Combine(Path.GetDirectoryName(AppPaths.ExecutablePath), "TinyWall.vshost.exe"),
 #endif
-            Utils.ExecutablePath,
+            AppPaths.ExecutablePath,
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "dllhost.exe")
         };
 
@@ -30,7 +30,7 @@ namespace pylorak.TinyWall
                 WFEventWatcher.EventRecordWritten += new EventHandler<EventRecordWrittenEventArgs>(WFEventWatcher_EventRecordWritten);
                 WFEventWatcher.Enabled = true;
             }
-            catch(Exception e)
+            catch (Exception e)
             {
                 Utils.Log("Cannot monitor Windows Firewall. Is the 'eventlog' service running? For details see next log entry.", Utils.LOG_ID_SERVICE);
                 Utils.LogException(e, Utils.LOG_ID_SERVICE);

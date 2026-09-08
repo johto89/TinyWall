@@ -46,13 +46,26 @@ namespace pylorak.TinyWall
                         {
                             listView.BeginInvoke((MethodInvoker)delegate
                             {
-                                if (is_icon_new)
+                                if (listView.IsDisposed)
                                 {
-                                    imageList.Images.Add(icon_path, icon);
-                                    icon_idx = imageList.Images.IndexOfKey(icon_path);
-                                    LoadedIcons.TryAdd(icon_path, icon_idx);
+                                    icon?.Dispose();
+                                    return;
                                 }
-                                li.ImageIndex = icon_idx;
+
+                                try
+                                {
+                                    if (is_icon_new)
+                                    {
+                                        imageList.Images.Add(icon_path, icon);
+                                        _ = imageList.Handle;  // Ensure native HIMAGELIST has independent copy
+                                        icon?.Dispose();  // Safe: managed HBITMAP freed, native copy unaffected
+                                        icon_idx = imageList.Images.IndexOfKey(icon_path);
+                                        LoadedIcons.TryAdd(icon_path, icon_idx);
+                                    }
+                                    li.ImageIndex = icon_idx;
+                                }
+                                // Ignore any errors during icon loading, it is purely aesthetical
+                                catch { }
 
                                 // Live-update listview, but throttle to conserve CPU since this is pretty expensive
                                 if (st.ElapsedMilliseconds >= 200)
@@ -64,7 +77,7 @@ namespace pylorak.TinyWall
                         }
                     }
                 }
-                listView.BeginInvoke((MethodInvoker)delegate { listView.Refresh(); });
+                listView.BeginInvoke((MethodInvoker)delegate { if (!listView.IsDisposed) listView.Refresh(); });
             });
         }
 

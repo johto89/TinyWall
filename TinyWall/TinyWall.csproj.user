@@ -4,10 +4,10 @@
     <StartArguments>/selfhosted</StartArguments>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'Release|AnyCPU'">
-    <StartArguments>/develtool</StartArguments>
+    <StartArguments>/selfhosted</StartArguments>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Update="..\pylorak.Windows\TaskDialog\TaskDialogCommonDialog.cs">
+    <Compile Update="..\Microsoft.Samples\TaskDialog\TaskDialogCommonDialog.cs">
       <SubType>Component</SubType>
     </Compile>
     <Compile Update="Installer\TinyWallInstaller.cs">

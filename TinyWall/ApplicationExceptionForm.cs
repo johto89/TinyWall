@@ -1,9 +1,11 @@
-﻿using System;
+﻿using DarkModeForms;
+using Microsoft.Samples.TaskDialog;
+using pylorak.Windows;
+using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Windows.Forms;
 using System.Reflection;
-using pylorak.Windows;
+using System.Windows.Forms;
 
 namespace pylorak.TinyWall
 {
@@ -13,6 +15,7 @@ namespace pylorak.TinyWall
 
         private List<FirewallExceptionV3> TmpExceptionSettings = new();
         private readonly bool PreserveSettingsOnSubjectChange = false;
+        private readonly DarkModeCS? DarkMode;
 
         internal List<FirewallExceptionV3> ExceptionSettings
         {
@@ -23,6 +26,8 @@ namespace pylorak.TinyWall
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
+            if (Utils.IsDarkModeActive(ActiveConfig.Controller))
+                this.DarkMode = new(this, false) { ColorMode = DarkModeCS.DisplayMode.DarkMode };
 
             try
             {
@@ -163,6 +168,10 @@ namespace pylorak.TinyWall
             // Update subject fields
             switch (TmpExceptionSettings[0].Subject.SubjectType)
             {
+                case SubjectType.Invalid:
+                    txtAppPath.Text = string.Empty;
+                    txtSrvName.Text = string.Empty;
+                    break;
                 case SubjectType.Global:
                     txtAppPath.Text = Resources.Messages.AllApplications;
                     txtSrvName.Text = Resources.Messages.SubjectTypeGlobal;
@@ -241,6 +250,8 @@ namespace pylorak.TinyWall
                 default:
                     throw new NotImplementedException();
             }
+
+            btnOK.Enabled = TmpExceptionSettings[0].Subject.SubjectType != SubjectType.Invalid;
         }
 
         private static string CleanupPortsList(string str)
@@ -315,8 +326,8 @@ namespace pylorak.TinyWall
                     Utils.ShowMessageBox(
                         Resources.Messages.PortListInvalid,
                         Resources.Messages.TinyWall,
-                        Microsoft.Samples.TaskDialogCommonButtons.Ok,
-                        Microsoft.Samples.TaskDialogIcon.Warning,
+                        TaskDialogCommonButtons.Ok,
+                        TaskDialogIcon.Warning,
                         this);
 
                     return;
@@ -324,13 +335,12 @@ namespace pylorak.TinyWall
             }
             else if (radUnrestricted.Checked)
             {
-                var pol = new UnrestrictedPolicy();
-                pol.LocalNetworkOnly = chkRestrictToLocalNetwork.Checked;
+                var pol = new UnrestrictedPolicy() { LocalNetworkOnly = chkRestrictToLocalNetwork.Checked };
                 TmpExceptionSettings[0].Policy = pol;
             }
 
             this.TmpExceptionSettings[0].CreationDate = DateTime.Now;
-            
+
             this.DialogResult = System.Windows.Forms.DialogResult.OK;
         }
 
@@ -344,8 +354,8 @@ namespace pylorak.TinyWall
             var procList = new List<ProcessInfo>();
             using (var pf = new ProcessesForm(false))
             {
-                    if (pf.ShowDialog(this) == DialogResult.Cancel)
-                        return;
+                if (pf.ShowDialog(this) == DialogResult.Cancel)
+                    return;
 
                 procList.AddRange(pf.Selection);
             }

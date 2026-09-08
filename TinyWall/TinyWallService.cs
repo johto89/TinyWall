@@ -1,18 +1,17 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Collections.Concurrent;
-using System.Diagnostics;
-using System.IO;
-using System.Text;
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Management;
-using System.Threading;
+﻿using pylorak.Utilities;
 using pylorak.Windows;
 using pylorak.Windows.Services;
 using pylorak.Windows.WFP;
 using pylorak.Windows.WFP.Interop;
-using pylorak.Utilities;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Management;
+using System.Net;
+using System.Text;
+using System.Threading;
 
 namespace pylorak.TinyWall
 {
@@ -38,6 +37,7 @@ namespace pylorak.TinyWall
         private readonly CircularBuffer<FirewallLogEntry> FirewallLogEntries = new(500);
         private readonly FileLocker FileLocker = new();
         private readonly HostsFileManager HostsFileManager = new();
+        private readonly TransactionalDictionary<ulong, FilterGroup> FilterGrouping = new();
         private DateTime LastControllerCommandTime = DateTime.Now;
         private DateTime LastRuleReloadTime = DateTime.Now;
 
@@ -57,9 +57,10 @@ namespace pylorak.TinyWall
         private bool DisplayCurrentlyOn = true;
         private readonly ServerState VisibleState = new();
 
-        private readonly Engine WfpEngine = new("TinyWall Session", "", FWPM_SESSION_FLAGS.None, 5000);
         private readonly ManagementEventWatcher ProcessStartWatcher = new(new WqlEventQuery("SELECT * FROM Win32_ProcessStartTrace"));
         private readonly EventMerger RuleReloadEventMerger = new(1000);
+        private readonly Engine WfpEngine = new("TinyWall Session", "", FWPM_SESSION_FLAGS.None, 5000);
+        private NetEventSubscription? WfpNetEventSubscription = null;
 
         private HashSet<IpAddrMask> LocalSubnetAddreses = new();
         private HashSet<IpAddrMask> GatewayAddresses = new();
@@ -77,8 +78,10 @@ namespace pylorak.TinyWall
             // Do we want to let local traffic through?
             if (ActiveConfig.Service.ActiveProfile.AllowLocalSubnet)
             {
-                var def = new RuleDef(ModeId, "Allow local subnet", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
-                def.RemoteAddresses = RuleDef.LOCALSUBNET_ID;
+                var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Allow local subnet", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit)
+                {
+                    RemoteAddresses = RuleDef.LOCALSUBNET_ID
+                };
                 rules.Add(def);
             }
 
@@ -90,7 +93,7 @@ namespace pylorak.TinyWall
                 foreach (var ex in exceptions)
                 {
                     ex.RegenerateId();
-                    GetRulesForException(ex, rules, rawSocketExceptions, (ulong)FilterWeights.DefaultPermit, (ulong)FilterWeights.Blocklist);
+                    GetRulesForException(FilterGroup.Blocklist, ex, rules, rawSocketExceptions, (ulong)FilterWeights.DefaultPermit, (ulong)FilterWeights.Blocklist);
                 }
             }
 
@@ -101,11 +104,11 @@ namespace pylorak.TinyWall
                 case FirewallMode.AllowOutgoing:
                     {
                         // Block everything
-                        var def = new RuleDef(ModeId, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
+                        var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
                         rules.Add(def);
 
                         // Allow outgoing
-                        def = new RuleDef(ModeId, "Allow outbound", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.Out, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
+                        def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Allow outbound", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.Out, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
                         rules.Add(def);
                         break;
                     }
@@ -115,14 +118,14 @@ namespace pylorak.TinyWall
                         needUserRules = false;
 
                         // Block all
-                        var def = new RuleDef(ModeId, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
+                        var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
                         rules.Add(def);
                         break;
                     }
                 case FirewallMode.Learning:
                     {
                         // Add rule to explicitly allow everything
-                        var def = new RuleDef(ModeId, "Allow everything", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
+                        var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Allow everything", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
                         rules.Add(def);
                         break;
                     }
@@ -132,14 +135,14 @@ namespace pylorak.TinyWall
                         needUserRules = false;
 
                         // Add rule to explicitly allow everything
-                        var def = new RuleDef(ModeId, "Allow everything", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
+                        var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Allow everything", GlobalSubject.Instance, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultPermit);
                         rules.Add(def);
                         break;
                     }
                 case FirewallMode.Normal:
                     {
                         // Block all by default
-                        var def = new RuleDef(ModeId, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
+                        var def = new RuleDef(ModeId, FilterGroup.DefaultAction, "Block everything", GlobalSubject.Instance, RuleAction.Block, RuleDirection.InOut, Protocol.Any, (ulong)FilterWeights.DefaultBlock);
                         rules.Add(def);
                         break;
                     }
@@ -183,7 +186,7 @@ namespace pylorak.TinyWall
                         }
                     }
 
-                    GetRulesForException(ex, rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
+                    GetRulesForException(FilterGroup.User, ex, rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
                 }
 
                 if (ChildInheritance.Count != 0)
@@ -243,7 +246,7 @@ namespace pylorak.TinyWall
                                 continue;
 
                             if (ChildInheritedSubjectExes.TryGetValue(procPath, out var childVal))
-                            { 
+                            {
                                 if (childVal.Contains(parentEntry.ImagePath))
                                     // We have already processed this parent-child combination
                                     break;
@@ -253,7 +256,7 @@ namespace pylorak.TinyWall
                             {
                                 var subj = new ExecutableSubject(procPath);
                                 foreach (var userEx in exList)
-                                    GetRulesForException(new FirewallExceptionV3(subj, userEx.Policy), rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
+                                    GetRulesForException(FilterGroup.User, new FirewallExceptionV3(subj, userEx.Policy), rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
 
                                 if (!ChildInheritedSubjectExes.ContainsKey(procPath))
                                     ChildInheritedSubjectExes.Add(procPath, new HashSet<string>());
@@ -288,7 +291,7 @@ namespace pylorak.TinyWall
             return rules;
         }
 
-        private void InstallRules(List<RuleDef> rules, List<RuleDef> rawSocketExceptions, bool useTransaction)
+        private void InstallRules(List<RuleDef> rules, List<RuleDef> rawSocketExceptions, bool useTransaction, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             Transaction? trx = useTransaction ? WfpEngine.BeginTransaction() : null;
             try
@@ -298,7 +301,7 @@ namespace pylorak.TinyWall
                 {
                     try
                     {
-                        ConstructFilter(r);
+                        ConstructFilter(r, fltCatTrx);
                     }
                     catch { }
                 }
@@ -306,8 +309,8 @@ namespace pylorak.TinyWall
                 // Built-in protections
                 if (VisibleState.Mode != FirewallMode.Disabled)
                 {
-                    InstallRawSocketPermits(rawSocketExceptions);
-                    InstallWsl2Filters(ActiveConfig.Service.ActiveProfile.HasSpecialException("WSL_2"));
+                    InstallRawSocketPermits(rawSocketExceptions, fltCatTrx);
+                    InstallWsl2Filters(ActiveConfig.Service.ActiveProfile.HasSpecialException("WSL_2"), fltCatTrx);
                 }
 
                 trx?.Commit();
@@ -325,6 +328,8 @@ namespace pylorak.TinyWall
             LastRuleReloadTime = DateTime.Now;
             PathMapper.Instance.RebuildCache();
 
+            using var fltCatTrx = FilterGrouping.CreateTransaction(true);
+            fltCatTrx.Dictionary.Clear();
             var rules = new List<RuleDef>();
             var rawSocketExceptions = new List<RuleDef>();
             lock (InheritanceGuard)
@@ -349,7 +354,7 @@ namespace pylorak.TinyWall
             }
 
             timer.NewSubTask("WFP transaction acquire");
-            using Transaction trx = WfpEngine.BeginTransaction();
+            using Transaction wfpTrx = WfpEngine.BeginTransaction();
             timer.NewSubTask("WFP preparation");
             // Remove all existing WFP objects
             DeleteWfpObjects(WfpEngine, true);
@@ -380,15 +385,24 @@ namespace pylorak.TinyWall
             // Add standard protections
             if (VisibleState.Mode != FirewallMode.Disabled)
             {
-                InstallPortScanProtection();
-                InstallRawSocketBlocks();
+                InstallPortScanProtection(fltCatTrx.Dictionary);
+                InstallRawSocketBlocks(fltCatTrx.Dictionary);
             }
 
             timer.NewSubTask("Installing rules");
-            InstallRules(rules, rawSocketExceptions, false);
+            InstallRules(rules, rawSocketExceptions, false, fltCatTrx.Dictionary);
 
             timer.NewSubTask("WFP transaction commit");
-            trx.Commit();
+
+            wfpTrx.Commit();
+            fltCatTrx.Commit();
+
+            // We only subscribe to events here to make sure events get generated only after
+            // firewall rules have been installed at least once.
+            // This avoids incorrect filter category association in netevents by making sure
+            // FilterCategories is set up correctly according to the firewall settings.
+            try { WfpNetEventSubscription ??= WfpEngine.SubscribeNetEvent(WfpNetEventCallback); }
+            catch(Exception e) { Utils.LogException(e, Utils.LOG_ID_SERVICE); }
         }
 
         private enum LayerKeyEnum
@@ -453,22 +467,27 @@ namespace pylorak.TinyWall
             };
         }
 
-        private void InstallWfpFilter(Filter f)
+        private void InstallWfpFilter(Filter f, FilterGroup category, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
+            Debug.Assert(category != FilterGroup.Invalid);
+            Debug.Assert(category != FilterGroup.ExternalApp);
+
             try
             {
                 f.FilterKey = Guid.NewGuid();
                 f.Flags = FilterFlags.FWPM_FILTER_FLAG_PERSISTENT;
                 WfpEngine.RegisterFilter(f);
+                fltCatTrx.Add(f.FilterId, category);
 
                 f.FilterKey = Guid.NewGuid();
                 f.Flags = FilterFlags.FWPM_FILTER_FLAG_BOOTTIME;
                 WfpEngine.RegisterFilter(f);
+                fltCatTrx.Add(f.FilterId, category);
             }
             catch { }
         }
 
-        private void ConstructFilter(RuleDef r, LayerKeyEnum layer)
+        private void ConstructFilter(RuleDef r, LayerKeyEnum layer, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             // Local helper methods
 
@@ -557,24 +576,31 @@ namespace pylorak.TinyWall
                 bool validAddressFound = false;
                 foreach (var ipStr in r.RemoteAddresses.AsSpan().Split(',', SpanSplitOptions.RemoveEmptyEntries))
                 {
-                    if (ipStr.Equals(RuleDef.LOCALSUBNET_ID, StringComparison.Ordinal))
+                    try
                     {
-                        foreach (var filter in LocalSubnetFilterConditions)
-                            validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
+                        if (ipStr.Equals(RuleDef.LOCALSUBNET_ID, StringComparison.Ordinal))
+                        {
+                            foreach (var filter in LocalSubnetFilterConditions)
+                                validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
+                        }
+                        else if (ipStr.Equals("DefaultGateway", StringComparison.Ordinal))
+                        {
+                            foreach (var filter in GatewayFilterConditions)
+                                validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
+                        }
+                        else if (ipStr.Equals("DNS", StringComparison.Ordinal))
+                        {
+                            foreach (var filter in DnsFilterConditions)
+                                validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
+                        }
+                        else
+                        {
+                            validAddressFound |= addIpFilterCondition(IpAddrMask.Parse(ipStr), RemoteOrLocal.Remote, conditions);
+                        }
                     }
-                    else if (ipStr.Equals("DefaultGateway", StringComparison.Ordinal))
+                    catch
                     {
-                        foreach (var filter in GatewayFilterConditions)
-                            validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
-                    }
-                    else if (ipStr.Equals("DNS", StringComparison.Ordinal))
-                    {
-                        foreach (var filter in DnsFilterConditions)
-                            validAddressFound |= addCommonIpFilterCondition((IpFilterCondition)filter, conditions);
-                    }
-                    else
-                    {
-                        validAddressFound |= addIpFilterCondition(IpAddrMask.Parse(ipStr), RemoteOrLocal.Remote, conditions);
+                        // Ignore failed IP condition and process next one
                     }
                 }
 
@@ -669,16 +695,16 @@ namespace pylorak.TinyWall
             f.LayerKey = GetLayerKey(layer);
             f.SublayerKey = GetSublayerKey(layer);
 
-            InstallWfpFilter(f);
+            InstallWfpFilter(f, r.Category, fltCatTrx);
         }
 
-        private void InstallRawSocketBlocks()
+        private void InstallRawSocketBlocks(Dictionary<ulong, FilterGroup> fltCatTrx)
         {
-            InstallRawSocketBlocks(LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V4);
-            InstallRawSocketBlocks(LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V6);
+            InstallRawSocketBlocks(LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V4, fltCatTrx);
+            InstallRawSocketBlocks(LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V6, fltCatTrx);
         }
 
-        private void InstallRawSocketBlocks(LayerKeyEnum layer)
+        private void InstallRawSocketBlocks(LayerKeyEnum layer, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             using var f = new Filter(
                 "Raw socket block",
@@ -691,30 +717,30 @@ namespace pylorak.TinyWall
             f.SublayerKey = GetSublayerKey(layer);
             f.Conditions.Add(new FlagsFilterCondition(ConditionFlags.FWP_CONDITION_FLAG_IS_RAW_ENDPOINT, FieldMatchType.FWP_MATCH_FLAGS_ANY_SET));
 
-            InstallWfpFilter(f);
+            InstallWfpFilter(f, FilterGroup.RawSocket, fltCatTrx);
         }
 
-        private void InstallWsl2Filters(bool permit)
+        private void InstallWsl2Filters(bool permit, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             const string ifAlias = "vEthernet (WSL)";
             try
             {
                 if (LocalInterfaceCondition.InterfaceAliasExists(ifAlias))
                 {
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V4);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V6);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V4);
-                    InstallWsl2Filters(permit, ifAlias, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V6);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V4);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V6);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V4);
+                    InstallWsl2Filters(fltCatTrx, permit, ifAlias, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V6);
                 }
             }
             catch { }
         }
 
-        private void InstallWsl2Filters(bool permit, string ifAlias, LayerKeyEnum layer)
+        private void InstallWsl2Filters(Dictionary<ulong, FilterGroup> fltCatTrx, bool permit, string ifAlias, LayerKeyEnum layer)
         {
             FilterActions action = permit ? FilterActions.FWP_ACTION_PERMIT : FilterActions.FWP_ACTION_BLOCK;
             ulong weight = (ulong)(permit ? FilterWeights.UserPermit : FilterWeights.UserBlock);
@@ -730,16 +756,16 @@ namespace pylorak.TinyWall
             f.SublayerKey = GetSublayerKey(layer);
             f.Conditions.Add(new LocalInterfaceCondition(ifAlias));
 
-            InstallWfpFilter(f);
+            InstallWfpFilter(f, FilterGroup.User, fltCatTrx);
         }
 
-        private void InstallRawSocketPermits(List<RuleDef> rawSocketExceptions)
+        private void InstallRawSocketPermits(List<RuleDef> rawSocketExceptions, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
-            InstallRawSocketPermits(rawSocketExceptions, LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V4);
-            InstallRawSocketPermits(rawSocketExceptions, LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V6);
+            InstallRawSocketPermits(rawSocketExceptions, LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V4, fltCatTrx);
+            InstallRawSocketPermits(rawSocketExceptions, LayerKeyEnum.FWPM_LAYER_ALE_RESOURCE_ASSIGNMENT_V6, fltCatTrx);
         }
 
-        private void InstallRawSocketPermits(List<RuleDef> rawSocketExceptions, LayerKeyEnum layer)
+        private void InstallRawSocketPermits(List<RuleDef> rawSocketExceptions, LayerKeyEnum layer, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             foreach (var subj in rawSocketExceptions)
             {
@@ -751,7 +777,7 @@ namespace pylorak.TinyWall
                     if (!Utils.IsNullOrEmpty(subj.ServiceName))
                         conditions.Add(new ServiceNameFilterCondition(subj.ServiceName));
                     if (conditions.Count == 0)
-                        return;
+                        continue;
 
                     using var f = new Filter(
                         "Raw socket permit",
@@ -764,19 +790,19 @@ namespace pylorak.TinyWall
                     f.LayerKey = GetLayerKey(layer);
                     f.SublayerKey = GetSublayerKey(layer);
 
-                    InstallWfpFilter(f);
+                    InstallWfpFilter(f, FilterGroup.User, fltCatTrx);
                 }
                 catch { }
             }
         }
 
-        private void InstallPortScanProtection()
+        private void InstallPortScanProtection(Dictionary<ulong, FilterGroup> fltCatTrx)
         {
-            InstallPortScanProtection(LayerKeyEnum.FWPM_LAYER_INBOUND_TRANSPORT_V4_DISCARD, BuiltinCallouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V4_SILENT_DROP);
-            InstallPortScanProtection(LayerKeyEnum.FWPM_LAYER_INBOUND_TRANSPORT_V6_DISCARD, BuiltinCallouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V6_SILENT_DROP);
+            InstallPortScanProtection(LayerKeyEnum.FWPM_LAYER_INBOUND_TRANSPORT_V4_DISCARD, BuiltinCallouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V4_SILENT_DROP, fltCatTrx);
+            InstallPortScanProtection(LayerKeyEnum.FWPM_LAYER_INBOUND_TRANSPORT_V6_DISCARD, BuiltinCallouts.FWPM_CALLOUT_WFP_TRANSPORT_LAYER_V6_SILENT_DROP, fltCatTrx);
         }
 
-        private void InstallPortScanProtection(LayerKeyEnum layer, Guid callout)
+        private void InstallPortScanProtection(LayerKeyEnum layer, Guid callout, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             using var f = new Filter(
                 "Port Scanning Protection",
@@ -792,7 +818,7 @@ namespace pylorak.TinyWall
             // Don't affect loopback traffic
             f.Conditions.Add(new FlagsFilterCondition(ConditionFlags.FWP_CONDITION_FLAG_IS_LOOPBACK | ConditionFlags.FWP_CONDITION_FLAG_IS_IPSEC_SECURED, FieldMatchType.FWP_MATCH_FLAGS_NONE_SET));
 
-            InstallWfpFilter(f);
+            InstallWfpFilter(f, FilterGroup.PortScan, fltCatTrx);
         }
 
         private static bool LayerIsAleAuthConnect(LayerKeyEnum layer)
@@ -828,30 +854,30 @@ namespace pylorak.TinyWall
                 (layer == LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V6);
         }
 
-        private void ConstructFilter(RuleDef r)
+        private void ConstructFilter(RuleDef r, Dictionary<ulong, FilterGroup> fltCatTrx)
         {
             // Also, relevant info:
             // https://networkengineering.stackexchange.com/questions/58903/how-to-handle-icmp-in-ipv6-or-icmpv6-in-ipv4
 
             if ((r.Direction & RuleDirection.Out) != 0)
             {
-                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V6);
-                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V4);
+                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V6, fltCatTrx);
+                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_CONNECT_V4, fltCatTrx);
 
                 if ((r.Protocol == Protocol.Any) || (r.Protocol == Protocol.ICMPv6))
-                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6);
+                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V6, fltCatTrx);
                 if ((r.Protocol == Protocol.Any) || (r.Protocol == Protocol.ICMPv4))
-                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4);
+                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_OUTBOUND_ICMP_ERROR_V4, fltCatTrx);
             }
             if ((r.Direction & RuleDirection.In) != 0)
             {
-                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6);
-                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4);
+                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V6, fltCatTrx);
+                ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_ALE_AUTH_RECV_ACCEPT_V4, fltCatTrx);
 
                 if ((r.Protocol == Protocol.Any) || (r.Protocol == Protocol.ICMPv6))
-                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V6);
+                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V6, fltCatTrx);
                 if ((r.Protocol == Protocol.Any) || (r.Protocol == Protocol.ICMPv4))
-                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V4);
+                    ConstructFilter(r, LayerKeyEnum.FWPM_LAYER_INBOUND_ICMP_ERROR_V4, fltCatTrx);
             }
         }
 
@@ -885,7 +911,7 @@ namespace pylorak.TinyWall
             return exceptions;
         }
 
-        private static void GetRulesForException(FirewallExceptionV3 ex, List<RuleDef> results, List<RuleDef> rawSocketExceptions, ulong permitWeight, ulong blockWeight)
+        private static void GetRulesForException(FilterGroup category, FirewallExceptionV3 ex, List<RuleDef> results, List<RuleDef> rawSocketExceptions, ulong permitWeight, ulong blockWeight)
         {
             if (ex.Id == Guid.Empty)
             {
@@ -902,7 +928,7 @@ namespace pylorak.TinyWall
             {
                 case PolicyType.HardBlock:
                     {
-                        var def = new RuleDef(ex.Id, "Block", ex.Subject, RuleAction.Block, RuleDirection.InOut, Protocol.Any, blockWeight);
+                        var def = new RuleDef(ex.Id, category, "Block", ex.Subject, RuleAction.Block, RuleDirection.InOut, Protocol.Any, blockWeight);
                         results.Add(def);
                         break;
                     }
@@ -910,7 +936,7 @@ namespace pylorak.TinyWall
                     {
                         var pol = (UnrestrictedPolicy)ex.Policy;
 
-                        var def = new RuleDef(ex.Id, "Full access", ex.Subject, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, permitWeight);
+                        var def = new RuleDef(ex.Id, category, "Full access", ex.Subject, RuleAction.Allow, RuleDirection.InOut, Protocol.Any, permitWeight);
                         if (pol.LocalNetworkOnly)
                             def.RemoteAddresses = RuleDef.LOCALSUBNET_ID;
                         results.Add(def);
@@ -927,7 +953,7 @@ namespace pylorak.TinyWall
                         // Incoming
                         if (!string.IsNullOrEmpty(pol.AllowedLocalTcpListenerPorts) && (pol.AllowedLocalTcpListenerPorts == pol.AllowedLocalUdpListenerPorts))
                         {
-                            var def = new RuleDef(ex.Id, "TCP/UDP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.TcpUdp, permitWeight);
+                            var def = new RuleDef(ex.Id, category, "TCP/UDP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.TcpUdp, permitWeight);
                             if (!string.Equals(pol.AllowedLocalTcpListenerPorts, "*"))
                                 def.LocalPorts = pol.AllowedLocalTcpListenerPorts;
                             if (pol.LocalNetworkOnly)
@@ -938,7 +964,7 @@ namespace pylorak.TinyWall
                         {
                             if (!string.IsNullOrEmpty(pol.AllowedLocalTcpListenerPorts))
                             {
-                                var def = new RuleDef(ex.Id, "TCP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.TCP, permitWeight);
+                                var def = new RuleDef(ex.Id, category, "TCP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.TCP, permitWeight);
                                 if (!string.Equals(pol.AllowedLocalTcpListenerPorts, "*"))
                                     def.LocalPorts = pol.AllowedLocalTcpListenerPorts;
                                 if (pol.LocalNetworkOnly)
@@ -947,7 +973,7 @@ namespace pylorak.TinyWall
                             }
                             if (!string.IsNullOrEmpty(pol.AllowedLocalUdpListenerPorts))
                             {
-                                var def = new RuleDef(ex.Id, "UDP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.UDP, permitWeight);
+                                var def = new RuleDef(ex.Id, category, "UDP Listen Ports", ex.Subject, RuleAction.Allow, RuleDirection.In, Protocol.UDP, permitWeight);
                                 if (!string.Equals(pol.AllowedLocalUdpListenerPorts, "*"))
                                     def.LocalPorts = pol.AllowedLocalUdpListenerPorts;
                                 if (pol.LocalNetworkOnly)
@@ -959,7 +985,7 @@ namespace pylorak.TinyWall
                         // Outgoing
                         if (!string.IsNullOrEmpty(pol.AllowedRemoteTcpConnectPorts) && (pol.AllowedRemoteTcpConnectPorts == pol.AllowedRemoteUdpConnectPorts))
                         {
-                            var def = new RuleDef(ex.Id, "TCP/UDP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.TcpUdp, permitWeight);
+                            var def = new RuleDef(ex.Id, category, "TCP/UDP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.TcpUdp, permitWeight);
                             if (!string.Equals(pol.AllowedRemoteTcpConnectPorts, "*"))
                                 def.RemotePorts = pol.AllowedRemoteTcpConnectPorts;
                             if (pol.LocalNetworkOnly)
@@ -970,7 +996,7 @@ namespace pylorak.TinyWall
                         {
                             if (!string.IsNullOrEmpty(pol.AllowedRemoteTcpConnectPorts))
                             {
-                                var def = new RuleDef(ex.Id, "TCP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.TCP, permitWeight);
+                                var def = new RuleDef(ex.Id, category, "TCP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.TCP, permitWeight);
                                 if (!string.Equals(pol.AllowedRemoteTcpConnectPorts, "*"))
                                     def.RemotePorts = pol.AllowedRemoteTcpConnectPorts;
                                 if (pol.LocalNetworkOnly)
@@ -979,7 +1005,7 @@ namespace pylorak.TinyWall
                             }
                             if (!string.IsNullOrEmpty(pol.AllowedRemoteUdpConnectPorts))
                             {
-                                var def = new RuleDef(ex.Id, "UDP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.UDP, permitWeight);
+                                var def = new RuleDef(ex.Id, category, "UDP Outbound Ports", ex.Subject, RuleAction.Allow, RuleDirection.Out, Protocol.UDP, permitWeight);
                                 if (!string.Equals(pol.AllowedRemoteUdpConnectPorts, "*"))
                                     def.RemotePorts = pol.AllowedRemoteUdpConnectPorts;
                                 if (pol.LocalNetworkOnly)
@@ -998,6 +1024,7 @@ namespace pylorak.TinyWall
                         foreach (var rule in pol.Rules)
                         {
                             var ruleCopy = rule.ShallowCopy();
+                            ruleCopy.Category = category;
                             ruleCopy.SetSubject(ex.Subject);
                             ruleCopy.ExceptionId = ex.Id;
                             ruleCopy.Weight = (rule.Action == RuleAction.Allow) ? permitWeight : blockWeight;
@@ -1012,7 +1039,7 @@ namespace pylorak.TinyWall
         {
             get
             {
-                return Path.Combine(Utils.AppDataPath, "config");
+                return Path.Combine(AppPaths.AppDataPath, "config");
             }
         }
 
@@ -1025,9 +1052,7 @@ namespace pylorak.TinyWall
             catch { }
 
             // Load from file failed, prepare default config instead
-
-            var ret = new ServerConfiguration();
-            ret.ActiveProfileName = Resources.Messages.Default;
+            var ret = new ServerConfiguration { ActiveProfileName = Resources.Messages.Default };
 
             // Allow recommended exceptions
             DatabaseClasses.AppDatabase db = GlobalInstances.AppDatabase;
@@ -1063,12 +1088,12 @@ namespace pylorak.TinyWall
         private void ReapplySettings()
         {
             using var timer = new HierarchicalStopwatch("ReapplySettings()");
-            HostsFileManager.EnableProtection = ActiveConfig.Service.LockHostsFile;
+            HostsFileManager.LockSystemHostsFile = ActiveConfig.Service.LockHostsFile;
             if (ActiveConfig.Service.Blocklists.EnableBlocklists
                 && ActiveConfig.Service.Blocklists.EnableHostsBlocklist)
-                HostsFileManager.EnableHostsFile();
+                HostsFileManager.EnableCustomHostsFile();
             else
-                HostsFileManager.DisableHostsFile();
+                HostsFileManager.DisableCustomHostsFile();
         }
 
         private static void LoadDatabase()
@@ -1085,10 +1110,8 @@ namespace pylorak.TinyWall
             }
         }
 
-#if !DEBUG
         private DateTime? LastUpdateCheck_ = null;
         private const string LastUpdateCheck_FILENAME = "updatecheck";
-
         private DateTime LastUpdateCheck
         {
             get
@@ -1097,7 +1120,7 @@ namespace pylorak.TinyWall
                 {
                     try
                     {
-                        string filePath = Path.Combine(Utils.AppDataPath, LastUpdateCheck_FILENAME);
+                        string filePath = Path.Combine(AppPaths.AppDataPath, LastUpdateCheck_FILENAME);
                         if (File.Exists(filePath))
                         {
                             using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -1122,7 +1145,7 @@ namespace pylorak.TinyWall
 
                 try
                 {
-                    string filePath = Path.Combine(Utils.AppDataPath, LastUpdateCheck_FILENAME);
+                    string filePath = Path.Combine(AppPaths.AppDataPath, LastUpdateCheck_FILENAME);
                     using var afu = new AtomicFileUpdater(filePath);
                     using (var fs = new FileStream(afu.TemporaryFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
                     {
@@ -1137,23 +1160,11 @@ namespace pylorak.TinyWall
 
         private void UpdaterMethod()
         {
-            UpdateDescriptor? update = null; 
-            try
-            {
-                if (DateTime.Now - LastUpdateCheck >= TimeSpan.FromDays(2))
-                {
-                    LastUpdateCheck = DateTime.Now;
-                    update = UpdateChecker.GetDescriptor();
-                }
-            }
-            catch
-            {
-                // This is an automatic update check in the background.
-                // If we fail (for whatever reason, no internet, server down etc.),
-                // we fail silently.
-                return;
-            }
-
+            // This is an automatic update check in the background.
+            // If we fail (for whatever reason, no internet, server down etc.), do it silently.
+            UpdateDescriptor? update = null;
+            try { update = UpdateChecker.GetDescriptor(); }
+            catch { return; }
             if (update is null)
                 return;
 
@@ -1162,84 +1173,61 @@ namespace pylorak.TinyWall
 
             try
             {
-                UpdateModule? module = UpdateChecker.GetDatabaseFileModule(VisibleState.Update);
-                if (module is not null)
+                var hostsUpdate = update.GetModule(UpdateDescriptor.MODULE_NAME_HOSTS);
+                if (hostsUpdate is not null)
                 {
-                    if (!string.Equals(module.DownloadHash, Hasher.HashFile(DatabaseClasses.AppDatabase.DBPath), StringComparison.OrdinalIgnoreCase))
-                    {
-                        GetCompressedUpdate(module, DatabaseUpdateInstall);
-                    }
-                }
-
-                module = UpdateChecker.GetHostsFileModule(VisibleState.Update);
-                if (module is not null)
-                {
-                    if (!string.Equals(module.DownloadHash, HostsFileManager.GetHostsHash(), StringComparison.OrdinalIgnoreCase))
-                    {
-                        GetCompressedUpdate(module, HostsUpdateInstall);
-                    }
+                    if (!string.Equals(hostsUpdate.DownloadHash, HostsFileManager.GetCustomHostsHash(), StringComparison.OrdinalIgnoreCase))
+                        GetCompressedUpdate(hostsUpdate, HostsUpdateInstall);
                 }
             }
-            catch (Exception e)
-            {
-                Utils.LogException(e, Utils.LOG_ID_SERVICE);
-            }
-        }
+            catch (Exception e) { Utils.LogException(e, Utils.LOG_ID_SERVICE); }
 
-        private static void GetCompressedUpdate(UpdateModule module, WaitCallback installMethod)
-        {
-            string tmpCompressedPath = Path.GetTempFileName();
-            string tmpFile = Path.GetTempFileName();
             try
             {
-                using (var downloader = new WebClient())
+                var databaseUpdate = update.GetModule(UpdateDescriptor.MODULE_NAME_DATABASE);
+                if (databaseUpdate is not null)
                 {
-                    downloader.DownloadFile(module.UpdateURL, tmpCompressedPath);
+                    if (!string.Equals(databaseUpdate.DownloadHash, Hasher.HashFile(DatabaseClasses.AppDatabase.DBPath), StringComparison.OrdinalIgnoreCase))
+                        GetCompressedUpdate(databaseUpdate, DatabaseUpdateInstall);
                 }
-                Utils.DecompressDeflate(tmpCompressedPath, tmpFile);
-
-                if (Hasher.HashFile(tmpFile).Equals(module.DownloadHash, StringComparison.OrdinalIgnoreCase))
-                    installMethod(tmpFile);
             }
-            catch { }
-            finally
-            {
-                try
-                {
-                    File.Delete(tmpCompressedPath);
-                }
-                catch { }
+            catch (Exception e) { Utils.LogException(e, Utils.LOG_ID_SERVICE); }
+        }
 
-                try
-                {
-                    File.Delete(tmpFile);
-                }
-                catch { }
+        private static void GetCompressedUpdate(UpdateModule module, Action<Stream> installMethod)
+        {
+            using var downloader = new WebClient();
+            var compressedData = downloader.DownloadData(module.UpdateURL);
+
+            using var compressedStream = new MemoryStream(compressedData, false);
+            using var decompressedStream = new MemoryStream();
+            Utils.DecompressDeflate(compressedStream, decompressedStream);
+            decompressedStream.Position = 0;
+
+            if (Hasher.HashStream(decompressedStream).Equals(module.DownloadHash, StringComparison.OrdinalIgnoreCase))
+            {
+#if !DEBUG  // don't install anything during debug
+                decompressedStream.Position = 0;
+                installMethod(decompressedStream);
+#endif
             }
         }
 
-        private void HostsUpdateInstall(object file)
+        private void HostsUpdateInstall(Stream sourceStream)
         {
-            string tmpHostsPath = (string)file;
-            HostsFileManager.UpdateHostsFile(tmpHostsPath);
-
-            if (ActiveConfig.Service.Blocklists.EnableBlocklists
-                && ActiveConfig.Service.Blocklists.EnableHostsBlocklist)
-            {
-                HostsFileManager.EnableHostsFile();
-            }
+            HostsFileManager.UpdateCustomHostsSelfCopy(sourceStream);
         }
-        private void DatabaseUpdateInstall(object file)
+        private void DatabaseUpdateInstall(Stream newDbStream)
         {
-            string tmpFilePath = (string)file;
-
-            FileLocker.Unlock(DatabaseClasses.AppDatabase.DBPath);
+            using var unlock = FileLocker.UnlockTemporarily(DatabaseClasses.AppDatabase.DBPath);
             using (var afu = new AtomicFileUpdater(DatabaseClasses.AppDatabase.DBPath))
             {
-                File.Copy(tmpFilePath, afu.TemporaryFilePath, true);
+                using (var tempFileStream = new FileStream(afu.TemporaryFilePath, FileMode.Create, FileAccess.Write, FileShare.None))
+                {
+                    newDbStream.CopyTo(tempFileStream);
+                }
                 afu.Commit();
             }
-            FileLocker.Lock(DatabaseClasses.AppDatabase.DBPath, FileAccess.Read, FileShare.Read);
             NotifyController(MessageType.DATABASE_UPDATED);
             Q.Add(new TwRequest(TwMessageSimple.CreateRequest(MessageType.REINIT)));
         }
@@ -1249,21 +1237,10 @@ namespace pylorak.TinyWall
             VisibleState.ClientNotifs.Add(msg);
             GlobalInstances.ServerChangeset = Guid.NewGuid();
         }
-#endif
 
         internal void TimerCallback(Object state)
         {
             Q.Add(new TwRequest(TwMessageSimple.CreateRequest(MessageType.MINUTE_TIMER)));
-        }
-
-        private List<FirewallLogEntry> GetFwLog()
-        {
-            var entries = new List<FirewallLogEntry>();
-            lock (FirewallLogEntries)
-            {
-                entries.AddRange(FirewallLogEntries);
-            }
-            return entries;
         }
 
         private bool CommitLearnedRules()
@@ -1338,7 +1315,12 @@ namespace pylorak.TinyWall
                 case MessageType.READ_FW_LOG:
                     {
                         var args = (TwMessageReadFwLog)req;
-                        return args.CreateResponse(GetFwLog().ToArray());
+                        FirewallLogEntry[] entries;
+                        lock (FirewallLogEntries)
+                        {
+                            entries = FirewallLogEntries.ToArray();
+                        }
+                        return args.CreateResponse(entries);
                     }
                 case MessageType.IS_LOCKED:
                     {
@@ -1365,7 +1347,7 @@ namespace pylorak.TinyWall
                         VisibleState.Mode = newMode;
                         if ((ActiveConfig.Service.StartupMode != VisibleState.Mode) &&
                             (VisibleState.Mode != FirewallMode.Disabled) &&
-                            (VisibleState.Mode != FirewallMode.Learning) )
+                            (VisibleState.Mode != FirewallMode.Learning))
                         {
                             ActiveConfig.Service.StartupMode = VisibleState.Mode;
                             save_needed = true;
@@ -1408,10 +1390,14 @@ namespace pylorak.TinyWall
 
                         foreach (var ex in args.Exceptions)
                         {
-                            GetRulesForException(ex, rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
+                            GetRulesForException(FilterGroup.User, ex, rules, rawSocketExceptions, (ulong)FilterWeights.UserPermit, (ulong)FilterWeights.UserBlock);
                         }
 
-                        InstallRules(rules, rawSocketExceptions, true);
+                        using (var fltCatTrx = FilterGrouping.CreateTransaction(false))
+                        {
+                            InstallRules(rules, rawSocketExceptions, true, fltCatTrx.Dictionary);
+                            fltCatTrx.Commit();
+                        }
                         lock (FirewallThreadThrottler.SynchRoot) { FirewallThreadThrottler.Release(); }
 
                         return args.CreateResponse();
@@ -1426,8 +1412,8 @@ namespace pylorak.TinyWall
                             VisibleState.HasPassword = PasswordLock.HasPassword;
                             VisibleState.Locked = PasswordLock.Locked;
 
-                            var ret = args.CreateResponse(GlobalInstances.ServerChangeset, ActiveConfig.Service, VisibleState);
-                            VisibleState.ClientNotifs.Clear();  // TODO: VisibleState is a reference so it cleants notifs before client could receive them
+                            var ret = args.CreateResponse(GlobalInstances.ServerChangeset, ActiveConfig.Service, Utils.DeepClone(VisibleState));
+                            VisibleState.ClientNotifs.Clear();
                             return ret;
                         }
                         else
@@ -1451,6 +1437,7 @@ namespace pylorak.TinyWall
                 case MessageType.UNLOCK:
                     {
                         var args = (TwMessageUnlock)req;
+                        using var unlock = FileLocker.UnlockTemporarily(PasswordLock.PasswordFilePath);
                         bool success = PasswordLock.Unlock(args.Password);
                         if (success)
                             return args.CreateResponse();
@@ -1475,7 +1462,7 @@ namespace pylorak.TinyWall
                 case MessageType.SET_PASSPHRASE:
                     {
                         var args = (TwMessageSetPassword)req;
-                        FileLocker.Unlock(PasswordLock.PasswordFilePath);
+                        using var unlock = FileLocker.UnlockTemporarily(PasswordLock.PasswordFilePath);
                         try
                         {
                             PasswordLock.SetPass(args.Password);
@@ -1485,10 +1472,6 @@ namespace pylorak.TinyWall
                         catch
                         {
                             return TwMessageError.Instance;
-                        }
-                        finally
-                        {
-                            FileLocker.Lock(PasswordLock.PasswordFilePath, FileAccess.Read, FileShare.Read);
                         }
                     }
                 case MessageType.STOP_SERVICE:
@@ -1502,6 +1485,11 @@ namespace pylorak.TinyWall
                         var args = (TwMessageSimple)req;
                         bool save_needed = false;
                         bool rule_reload_needed = false;
+
+                        // Event collection might have been disabled by external process or user after we started up,
+                        // so re-enable it if that is the case.
+                        if (!WfpEngine.CollectNetEvents)
+                            WfpEngine.CollectNetEvents = true;
 
                         // Check for inactivity and lock if necessary
                         if (DateTime.Now - LastControllerCommandTime > TimeSpan.FromMinutes(10))
@@ -1531,13 +1519,12 @@ namespace pylorak.TinyWall
                             InstallFirewallRules();
                         }
 
-#if !DEBUG
                         // Check for updates once every 2 days
-                        if (ActiveConfig.Service.AutoUpdateCheck)
+                        if (ActiveConfig.Service.AutoUpdateCheck && (DateTime.Now - LastUpdateCheck >= TimeSpan.FromDays(2)))
                         {
+                            LastUpdateCheck = DateTime.Now;
                             UpdaterMethod();
                         }
-#endif
 
                         return args.CreateResponse();
                     }
@@ -1569,37 +1556,21 @@ namespace pylorak.TinyWall
         {
             using var timer = new HierarchicalStopwatch("NIC enumeration");
             var newLocalSubnetAddreses = new HashSet<IpAddrMask>();
-            var newGatewayAddresses = new HashSet<IpAddrMask>();
-            var newDnsAddresses = new HashSet<IpAddrMask>();
-            var coll = NetworkInterface.GetAllNetworkInterfaces();
-
-            foreach (var iface in coll)
+            // Use direct P/Invoke to GetAdaptersAddresses instead of
+            // NetworkInterface.GetAllNetworkInterfaces() to avoid native memory leak
+            // in iphlpapi!GetPerAdapterInfo -> DNSAPI!Dns_AllocZero (~15KB per call).
+            if (!NetworkAdapterEnumerator.EnumerateActiveAdapters(
+                out var unicastList, out var newGatewayAddresses, out var newDnsAddresses))
             {
-                if (iface.OperationalStatus != OperationalStatus.Up)
+                return false;
+            }
+
+            foreach (var entry in unicastList)
+            {
+                if (entry.IsLoopback || entry.IsLinkLocal)
                     continue;
 
-                var props = iface.GetIPProperties();
-
-                foreach (var uni in props.UnicastAddresses)
-                {
-                    var am = new IpAddrMask(uni);
-                    if (am.IsLoopback || am.IsLinkLocal)
-                        continue;
-
-                    newLocalSubnetAddreses.Add(am.Subnet);
-                }
-
-                foreach (var uni in props.GatewayAddresses)
-                {
-                    var am = new IpAddrMask(uni);
-                    newGatewayAddresses.Add(am);
-                }
-
-                foreach (var uni in props.DnsAddresses)
-                {
-                    var am = new IpAddrMask(uni);
-                    newDnsAddresses.Add(am);
-                }
+                newLocalSubnetAddreses.Add(entry.Subnet);
             }
 
             newLocalSubnetAddreses.Add(new IpAddrMask(IPAddress.Parse("255.255.255.255")));
@@ -1638,6 +1609,12 @@ namespace pylorak.TinyWall
         internal static void DeleteWfpObjects(Engine wfp, bool removeLayersAndProvider)
         {
             // WARNING! This method is super-slow if not executed inside a WFP transaction!
+
+            // We swallow exceptions from unregistering sublayers and provider, because they cause no harm
+            // if left over and it is better for the applicaiton to be able to continue.
+            // We do throw however if unregistering a filter fails, because leftover filters might
+            // influence machine operation, so their removal must not fail silently.
+
             using var timer = new HierarchicalStopwatch("DeleteWfpObjects()");
             var layerKeys = (LayerKeyEnum[])Enum.GetValues(typeof(LayerKeyEnum));
             foreach (var layer in layerKeys)
@@ -1665,14 +1642,16 @@ namespace pylorak.TinyWall
             Q.Add(new TwRequest(TwMessageSimple.CreateRequest(MessageType.REINIT)));
 
             // Fire up file protections as soon as possible
+            FilesystemProtection.EnsureFile(DatabaseClasses.AppDatabase.DBPath, UserAccess.ReadOnly);
+            FilesystemProtection.EnsureFile(PasswordLock.PasswordFilePath, UserAccess.None);
             FileLocker.Lock(DatabaseClasses.AppDatabase.DBPath, FileAccess.Read, FileShare.Read);
-            FileLocker.Lock(PasswordLock.PasswordFilePath, FileAccess.Read, FileShare.Read);
+            FileLocker.Lock(PasswordLock.PasswordFilePath, FileAccess.Read, FileShare.None);
 
             // Lock configuration if we have a password
             if (PasswordLock.HasPassword)
                 PasswordLock.Locked = true;
 
-            LogWatcher.NewLogEntry += (FirewallLogWatcher sender, FirewallLogEntry entry) => { AutoLearnLogEntry(entry); };
+            LogWatcher.NewLogEntry += (sender, entry) => AutoLearnLogEntry(entry);
             MinuteTimer = new Timer(new TimerCallback(TimerCallback), null, Timeout.Infinite, Timeout.Infinite);
 
             // Discover network configuration
@@ -1686,27 +1665,29 @@ namespace pylorak.TinyWall
         // Only one thread (this one) is allowed to issue them.
         public void Run(ServiceBase service)
         {
+            AppPaths.EmptyFolder(AppPaths.PrivateTemp, false);
+
             using var timer = new HierarchicalStopwatch("Service Run()");
             using var WinDefFirewall = new WindowsFirewall();
             using var NetworkInterfaceWatcher = new IpInterfaceWatcher();
-            using var WfpEvent = WfpEngine.SubscribeNetEvent(WfpNetEventCallback);
             using var DisplayOffSubscription = SafeHandlePowerSettingNotification.Create(service.ServiceHandle, PowerSetting.GUID_CONSOLE_DISPLAY_STATE, DeviceNotifFlags.DEVICE_NOTIFY_SERVICE_HANDLE);
             using var DeviceNotification = SafeHandleDeviceNotification.Create(service.ServiceHandle, DeviceInterfaceClass.GUID_DEVINTERFACE_VOLUME, DeviceNotifFlags.DEVICE_NOTIFY_SERVICE_HANDLE);
             using var MountPointsWatcher = new RegistryWatcher(@"HKEY_LOCAL_MACHINE\SYSTEM\MountedDevices", true);
 
             WfpEngine.CollectNetEvents = true;
+            using var NetEventCollection = new CallbackOnDispose(() => { try { WfpEngine.CollectNetEvents = false; } catch { } });
             WfpEngine.EventMatchAnyKeywords = InboundEventMatchKeyword.FWPM_NET_EVENT_KEYWORD_INBOUND_BCAST | InboundEventMatchKeyword.FWPM_NET_EVENT_KEYWORD_INBOUND_MCAST;
 
             ProcessStartWatcher.EventArrived += ProcessStartWatcher_EventArrived;
-            NetworkInterfaceWatcher.InterfaceChanged += (object sender, EventArgs args) =>
+            NetworkInterfaceWatcher.InterfaceChanged += (sender, args) =>
             {
                 Q.Add(new TwRequest(TwMessageSimple.CreateRequest(MessageType.REENUMERATE_ADDRESSES)));
             };
-            RuleReloadEventMerger.Event += (object sender, EventArgs args) =>
+            RuleReloadEventMerger.Event += (sender, args) =>
             {
                 Q.Add(new TwRequest(TwMessageSimple.CreateRequest(MessageType.RELOAD_WFP_FILTERS)));
             };
-            MountPointsWatcher.RegistryChanged += (object sender, EventArgs args) =>
+            MountPointsWatcher.RegistryChanged += (sender, args) =>
             {
                 RuleReloadEventMerger.Pulse();
             };
@@ -1735,6 +1716,9 @@ namespace pylorak.TinyWall
                     req.Response = TwMessageError.Instance;
                 }
             }
+
+            WfpNetEventSubscription?.Dispose();
+            WfpNetEventSubscription = null;
         }
 
         private void ProcessStartWatcher_EventArrived(object sender, EventArrivedEventArgs e)
@@ -1818,25 +1802,29 @@ namespace pylorak.TinyWall
 
         private void WfpNetEventCallback(NetEventData data)
         {
-            EventLogEvent eventType;
+            var filterGrouping = FilterGrouping.Snapshot;
+
+            FirewallLogEvent eventType;
             if (data.EventType == FWPM_NET_EVENT_TYPE.FWPM_NET_EVENT_TYPE_CLASSIFY_DROP)
-                eventType = EventLogEvent.BLOCKED;
+                eventType = FirewallLogEvent.ClassifyDrop;
             else if (data.EventType == FWPM_NET_EVENT_TYPE.FWPM_NET_EVENT_TYPE_CLASSIFY_ALLOW)
-                eventType = EventLogEvent.ALLOWED;
+                eventType = FirewallLogEvent.ClassifyAllow;
             else
                 return;
 
-            var entry = new FirewallLogEntry();
-            entry.Timestamp = data.timeStamp;
-            entry.Event = eventType;
+            var entry = new FirewallLogEntry
+            {
+                Timestamp = data.timeStamp,
+                Event = eventType,
+                PackageId = data.packageId,
+                RemoteIp = data.remoteAddr,
+                LocalIp = data.localAddr
+            };
 
             if (!Utils.IsNullOrEmpty(data.appId))
                 entry.AppPath = PathMapper.Instance.ConvertPathIgnoreErrors(data.appId, PathFormat.Win32);
             else
                 entry.AppPath = "System";
-            entry.PackageId = data.packageId;
-            entry.RemoteIp = data.remoteAddr?.ToString();
-            entry.LocalIp = data.localAddr?.ToString();
             if (data.remotePort.HasValue)
                 entry.RemotePort = data.remotePort.Value;
             if (data.direction.HasValue)
@@ -1846,11 +1834,13 @@ namespace pylorak.TinyWall
             if (data.localPort.HasValue)
                 entry.LocalPort = data.localPort.Value;
 
-            // Replace invalid IP strings with the "unspecified address" IPv6 specifier
-            if (string.IsNullOrEmpty(entry.RemoteIp))
-                entry.RemoteIp = "::";
-            if (string.IsNullOrEmpty(entry.LocalIp))
-                entry.LocalIp = "::";
+            if (data.filterId.HasValue)
+            {
+                if (filterGrouping.TryGetValue(data.filterId.Value, out FilterGroup cat))
+                    entry.FilterGroup = cat;
+                else
+                    entry.FilterGroup = FilterGroup.ExternalApp;
+            }
 
             lock (FirewallLogEntries)
             {
@@ -1858,7 +1848,7 @@ namespace pylorak.TinyWall
             }
         }
 
-        private void AutoLearnLogEntry(FirewallLogEntry entry)
+        private void AutoLearnLogEntry(FirewallLogWatcher.LogEntry entry)
         {
             if (  // IPv4
                 ((string.Equals(entry.RemoteIp, "127.0.0.1", StringComparison.Ordinal)
@@ -1942,6 +1932,8 @@ namespace pylorak.TinyWall
         {
             using var timer = new HierarchicalStopwatch("TinyWallService.Dispose()");
             ServerPipe?.Dispose();
+            ProcessStartWatcher.EventArrived -= ProcessStartWatcher_EventArrived;
+            try { ProcessStartWatcher.Stop(); } catch { }
             ProcessStartWatcher.Dispose();
 
             if (MinuteTimer != null)
@@ -1970,12 +1962,16 @@ namespace pylorak.TinyWall
             // Basic software health checks
             TinyWallDoctor.EnsureHealth(Utils.LOG_ID_SERVICE);
 #else
+            try
+            {
                 using (var wfp = new Engine("TinyWall Cleanup Session", "", FWPM_SESSION_FLAGS.None, 5000))
                 using (var trx = wfp.BeginTransaction())
                 {
                     DeleteWfpObjects(wfp, true);
                     trx.Commit();
                 }
+            }
+            catch (Exception e) { Utils.LogException(e, Utils.LOG_ID_SERVICE); }
 #endif
             PathMapper.Instance.Dispose();
         }
@@ -2040,8 +2036,7 @@ namespace pylorak.TinyWall
         protected override void OnStart(string[] args)
         {
             // Initialization on a new thread prevents stalling the SCM
-            FirewallWorkerThread = new Thread(new ThreadStart(FirewallWorkerMethod));
-            FirewallWorkerThread.Name = "ServiceMain";
+            FirewallWorkerThread = new Thread(new ThreadStart(FirewallWorkerMethod)) { Name = "ServiceMain" };
             FirewallWorkerThread.Start();
         }
 

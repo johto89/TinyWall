@@ -19,7 +19,16 @@ namespace pylorak.Windows.WFP
             _list = new List<FilterCondition>(capacity);
         }
 
-        public FilterCondition this[int index] { get => _list[index]; set => _list[index] = value; }
+        public FilterCondition this[int index]
+        {
+            get => _list[index];
+            set
+            {
+                value.AddRef();
+                _list[index].RemoveRef();
+                _list[index] = value;
+            }
+        }
 
         public int Count => _list.Count;
 
@@ -29,7 +38,9 @@ namespace pylorak.Windows.WFP
 
         public object SyncRoot => _list;
 
+#pragma warning disable CA1822
         public bool IsSynchronized => false;
+#pragma warning restore CA1822
 
         public bool IsDisposed => _disposed;
 

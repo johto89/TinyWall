@@ -6,8 +6,8 @@ namespace pylorak.Windows.WFP.Interop
     [StructLayout(LayoutKind.Sequential)]
     public struct FWPM_DISPLAY_DATA0
     {
-        [MarshalAs(UnmanagedType.LPWStr)] public string name;
-        [MarshalAs(UnmanagedType.LPWStr)] public string description;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? name;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? description;
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -93,6 +93,34 @@ namespace pylorak.Windows.WFP.Interop
     {
         public uint size;
         public IntPtr data;
+
+        private unsafe static int CountUtf16CodeUnitsNullTerm(IntPtr buf, uint bufSizeInBytes)
+        {
+            if (IntPtr.Zero == buf)
+                return 0;
+
+            int numChars = 0;
+            var bufPtr = (char*)buf.ToPointer();
+            var bufEndPtr = (char*)buf.ToPointer() + bufSizeInBytes / 2; // also handles uneven buffer size
+
+            while (bufPtr < bufEndPtr)
+            {
+                // Stop at the end of a null-terminated string
+                if (0 == *bufPtr)
+                    break;
+
+                ++bufPtr;
+                ++numChars;
+            }
+
+            return numChars;
+        }
+
+        public unsafe string MarshalAsNullTerminatedUniString()
+        {
+            var numCodeUnits = CountUtf16CodeUnitsNullTerm(data, size);
+            return new string((char*)data.ToPointer(), 0, numCodeUnits);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -104,9 +132,9 @@ namespace pylorak.Windows.WFP.Interop
         public FWP_BYTE_BLOB providerData;
         [MarshalAs(UnmanagedType.LPWStr)] public string serviceName;
 
-        public override string ToString()
+        public override readonly string ToString()
         {
-            return displayData.description;
+            return displayData.description ?? providerKey.ToString();
         }
     }
 
@@ -191,8 +219,8 @@ namespace pylorak.Windows.WFP.Interop
     [StructLayout(LayoutKind.Sequential)]
     public struct FWP_RANGE0
     {
-      public FWP_VALUE0 valueLow;
-      public FWP_VALUE0 valueHigh;
+        public FWP_VALUE0 valueLow;
+        public FWP_VALUE0 valueHigh;
     }
 
     public enum FWP_DATA_TYPE : uint
@@ -287,9 +315,9 @@ namespace pylorak.Windows.WFP.Interop
     [Flags]
     public enum FWP_ACTION_FLAG : uint
     {
-        FWP_ACTION_FLAG_TERMINATING     = 0x00001000,
+        FWP_ACTION_FLAG_TERMINATING = 0x00001000,
         FWP_ACTION_FLAG_NON_TERMINATING = 0x00002000,
-        FWP_ACTION_FLAG_CALLOUT         = 0x00004000
+        FWP_ACTION_FLAG_CALLOUT = 0x00004000
     }
 
     public enum FWP_ACTION_TYPE : uint
@@ -372,9 +400,9 @@ namespace pylorak.Windows.WFP.Interop
     public enum FilterEnumTemplateFlags : uint
     {
         FWP_FILTER_ENUM_FLAG_BEST_TERMINATING_MATCH = 0x00000001,
-        FWP_FILTER_ENUM_FLAG_SORTED  = 0x00000002,
-        FWP_FILTER_ENUM_FLAG_BOOTTIME_ONLY  = 0x00000004,
-        FWP_FILTER_ENUM_FLAG_INCLUDE_BOOTTIME  = 0x00000008,
+        FWP_FILTER_ENUM_FLAG_SORTED = 0x00000002,
+        FWP_FILTER_ENUM_FLAG_BOOTTIME_ONLY = 0x00000004,
+        FWP_FILTER_ENUM_FLAG_INCLUDE_BOOTTIME = 0x00000008,
         FWP_FILTER_ENUM_FLAG_INCLUDE_DISABLED = 0x00000010
     }
 
@@ -478,24 +506,27 @@ namespace pylorak.Windows.WFP.Interop
         [FieldOffset(0)]
         public fixed byte AddrV6[16];
 
-        public readonly System.Net.IPAddress ToIpV4()
+        public readonly byte[] ToByteArray(bool isIpV6)
         {
-            byte[] b = BitConverter.GetBytes(AddrV4);
-            Array.Reverse(b);
-            return new System.Net.IPAddress(b);
-        }
-        public System.Net.IPAddress ToIpV6()
-        {
-            byte[] b = new byte[16];
-            unsafe
+            if (isIpV6)
             {
-                fixed (byte* srcPtr = AddrV6)
+                byte[] b = new byte[16];
+                unsafe
                 {
-                    Marshal.Copy((IntPtr)srcPtr, b, 0, 16);
+                    fixed (byte* srcPtr = AddrV6)
+                    {
+                        Marshal.Copy((IntPtr)srcPtr, b, 0, 16);
+                    }
                 }
+                Array.Reverse(b);
+                return b;
             }
-            Array.Reverse(b);
-            return new System.Net.IPAddress(b);
+            else
+            {
+                byte[] b = BitConverter.GetBytes(AddrV4);
+                Array.Reverse(b);
+                return b;
+            }
         }
     }
 

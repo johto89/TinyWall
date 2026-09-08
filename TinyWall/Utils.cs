@@ -1,6 +1,9 @@
-﻿using System;
+﻿using Microsoft.Samples.TaskDialog;
+using Microsoft.Win32;
+using pylorak.Windows;
+using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Security;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Drawing;
@@ -8,12 +11,11 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
+using System.Security;
 using System.Security.Principal;
 using System.Text;
-using System.Windows.Forms;
 using System.Threading;
-using Microsoft.Samples;
-using pylorak.Windows;
+using System.Windows.Forms;
 
 namespace pylorak.TinyWall
 {
@@ -29,8 +31,20 @@ namespace pylorak.TinyWall
     internal static class Utils
     {
         [SuppressUnmanagedCodeSecurity]
+        internal static class UnsafeNativeMethods
+        {
+            internal enum ChangeWindowMessageFilterFlags : uint { Add = 1, Remove = 2 };
+
+            [DllImport("user32.dll")]
+            internal static extern bool ChangeWindowMessageFilter(uint msg, ChangeWindowMessageFilterFlags flags);
+        }
+
+        [SuppressUnmanagedCodeSecurity]
         internal static class SafeNativeMethods
         {
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            internal static extern uint RegisterWindowMessage([MarshalAs(UnmanagedType.LPWStr)] string lpString);
+
             [DllImport("user32.dll")]
             internal static extern IntPtr WindowFromPoint(Point pt);
 
@@ -43,9 +57,6 @@ namespace pylorak.TinyWall
             [DllImport("user32.dll", SetLastError = true)]
             [return: MarshalAs(UnmanagedType.Bool)]
             internal static extern bool IsImmersiveProcess(IntPtr hProcess);
-
-            [DllImport("dnsapi.dll", EntryPoint = "DnsFlushResolverCache")]
-            internal static extern uint DnsFlushResolverCache();
 
             [DllImport("User32.dll", SetLastError = true)]
             internal static extern int GetSystemMetrics(int nIndex);
@@ -125,9 +136,7 @@ namespace pylorak.TinyWall
             #endregion
         }
 
-        private static readonly Random _rng = new ();
-
-        public static string ExecutablePath { get; } = System.Reflection.Assembly.GetEntryAssembly().Location;
+        private static readonly Random _rng = new();
 
         public static string HexEncode(byte[] binstr)
         {
@@ -139,12 +148,22 @@ namespace pylorak.TinyWall
         }
 
 #if NET48
-        // Use string.IsNullOrEmpty() on .Net 5 and newer
+        // Use string.IsNullOrEmpty() on .Net 5 and newer.
+        // On .Net 4.8, use this instead of string.IsNullOrEmpty() due to nullability annotation.
         public static bool IsNullOrEmpty([NotNullWhen(false)] string? str)
         {
             return (str is null) || (str == string.Empty);
         }
 #endif
+
+        public static bool DisableMessageUIPI(string msg)
+        {
+            var msgId = SafeNativeMethods.RegisterWindowMessage(msg);
+            if (0 == msgId)
+                return false;
+
+            return UnsafeNativeMethods.ChangeWindowMessageFilter(msgId, UnsafeNativeMethods.ChangeWindowMessageFilterFlags.Add);
+        }
 
         public static T OnlyFirst<T>(IEnumerable<T> items)
         {
@@ -226,6 +245,33 @@ namespace pylorak.TinyWall
                 return Environment.GetEnvironmentVariable("ProgramFiles");
         }
 
+        internal static int GetArrayHashCode<TElem>(TElem[] arr)
+        {
+            return ((IStructuralEquatable)arr).GetHashCode(EqualityComparer<TElem>.Default);
+        }
+
+        internal static bool AppsUseLightTheme()
+        {
+            try
+            {
+                return 0 != (int)Registry.GetValue(@"HKEY_CURRENT_USER\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme", 1);
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        internal static bool IsDarkModeActive(ControllerSettings settings)
+        {
+            if (string.Equals(settings.UiTheme, "dark", StringComparison.InvariantCultureIgnoreCase))
+                return true;
+            else if (string.Equals(settings.UiTheme, "light", StringComparison.InvariantCultureIgnoreCase))
+                return false;
+            else
+                return !AppsUseLightTheme();
+        }
+
         internal static void CompressDeflate(string inputFile, string outputFile)
         {
             using var inFile = new FileStream(inputFile, FileMode.Open, FileAccess.Read);
@@ -240,17 +286,15 @@ namespace pylorak.TinyWall
             }
         }
 
-        internal static void DecompressDeflate(string inputFile, string outputFile)
+        internal static void DecompressDeflate(Stream inStream, Stream outStream)
         {
-            using var outFile = new FileStream(outputFile, FileMode.Create, FileAccess.Write);
-            using var inFile = new FileStream(inputFile, FileMode.Open, FileAccess.Read);
-            using var decompressedInFile = new DeflateStream(inFile, CompressionMode.Decompress, true);
+            using var decompressor = new DeflateStream(inStream, CompressionMode.Decompress, true);
 
             byte[] buffer = new byte[4096];
             int numRead;
-            while ((numRead = decompressedInFile.Read(buffer, 0, buffer.Length)) != 0)
+            while ((numRead = decompressor.Read(buffer, 0, buffer.Length)) != 0)
             {
-                outFile.Write(buffer, 0, numRead);
+                outStream.Write(buffer, 0, numRead);
             }
         }
 
@@ -402,21 +446,9 @@ namespace pylorak.TinyWall
             return SerializationHelper.Deserialize(SerializationHelper.Serialize(obj), obj);
         }
 
-        internal static bool StringArrayContains(string[] arr, string val, StringComparison opts = StringComparison.Ordinal)
-        {
-            for (int i = 0; i < arr.Length; ++i)
-            {
-                if (string.Equals(arr[i], val, opts))
-                    return true;
-            }
-
-            return false;
-        }
-
         internal static Process StartProcess(string path, string args, bool asAdmin, bool hideWindow = false)
         {
-            var psi = new ProcessStartInfo(path, args);
-            psi.WorkingDirectory = Path.GetDirectoryName(path);
+            var psi = new ProcessStartInfo(path, args) { WorkingDirectory = Path.GetDirectoryName(path) };
             if (asAdmin)
             {
                 psi.Verb = "runas";
@@ -426,6 +458,11 @@ namespace pylorak.TinyWall
                 psi.WindowStyle = ProcessWindowStyle.Hidden;
 
             return Process.Start(psi);
+        }
+
+        internal static void StartProcessAndForget(string path, string args, bool asAdmin, bool hideWindow = false)
+        {
+            using var _ = StartProcess(path, args, asAdmin, hideWindow);
         }
 
         internal static bool RunningAsAdmin()
@@ -584,12 +621,14 @@ namespace pylorak.TinyWall
         {
             Utils.SplitFirstLine(msg, out string firstLine, out string contentLines);
 
-            var taskDialog = new TaskDialog();
-            taskDialog.WindowTitle = title;
-            taskDialog.MainInstruction = firstLine;
-            taskDialog.CommonButtons = buttons;
-            taskDialog.MainIcon = icon;
-            taskDialog.Content = contentLines;
+            var taskDialog = new TaskDialog
+            {
+                WindowTitle = title,
+                MainInstruction = firstLine,
+                CommonButtons = buttons,
+                MainIcon = icon,
+                Content = contentLines
+            };
             if (parent is null)
                 return (DialogResult)taskDialog.Show();
             else
@@ -604,8 +643,9 @@ namespace pylorak.TinyWall
         internal static Version TinyWallVersion { get; } = typeof(Utils).Assembly.GetName().Version;
 
         private readonly static object logLocker = new();
-        internal static readonly string LOG_ID_SERVICE   = "service";
-        internal static readonly string LOG_ID_GUI       = "gui";
+        internal static readonly string LOG_ID_SERVICE = "service";
+        internal static readonly string LOG_ID_GUI = "gui";
+        internal static readonly string LOG_ID_CLI = "cli";
         internal static readonly string LOG_ID_INSTALLER = "installer";
         internal static void LogException(Exception e, string logname)
         {
@@ -628,9 +668,9 @@ namespace pylorak.TinyWall
                     // First, remove deprecated log files if any is found
                     // TODO: This can probably be removed in the future
                     string[] old_logs = new string[] {
-                        Path.Combine(Utils.AppDataPath, "errorlog"),
-                        Path.Combine(Utils.AppDataPath, "service.log"),
-                        Path.Combine(Utils.AppDataPath, "client.log"),
+                        Path.Combine(AppPaths.AppDataPath, "errorlog"),
+                        Path.Combine(AppPaths.AppDataPath, "service.log"),
+                        Path.Combine(AppPaths.AppDataPath, "client.log"),
                     };
 
                     foreach (string file in old_logs)
@@ -644,7 +684,7 @@ namespace pylorak.TinyWall
                     }
 
                     // Name of the current log file
-                    string logdir = Path.Combine(Utils.AppDataPath, "logs");
+                    string logdir = Path.Combine(AppPaths.AppDataPath, "logs");
                     string logfile = Path.Combine(logdir, $"{logname}.log");
 
                     if (!Directory.Exists(logdir))
@@ -683,26 +723,6 @@ namespace pylorak.TinyWall
                 doubleBufferPropertyInfo.SetValue(control, enable, null);
             }
             catch { }
-        }
-
-        internal static void FlushDnsCache()
-        {
-            _ = SafeNativeMethods.DnsFlushResolverCache();
-        }
-
-        internal static string AppDataPath
-        {
-            get
-            {
-#if DEBUG
-                return Path.GetDirectoryName(Utils.ExecutablePath);
-#else
-                string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "TinyWall");
-                if (!Directory.Exists(dir))
-                    Directory.CreateDirectory(dir);
-                return dir;
-#endif
-            }
         }
 
         public static bool EqualsCaseInsensitive(string a, string b)

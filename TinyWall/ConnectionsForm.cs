@@ -1,14 +1,15 @@
-﻿using System;
+﻿using DarkModeForms;
+using pylorak.Windows;
+using pylorak.Windows.NetStat;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.Globalization;
+using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Windows.Forms;
-using System.Drawing;
-using System.Linq;
-using pylorak.Windows;
-using pylorak.Windows.NetStat;
 
 namespace pylorak.TinyWall
 {
@@ -17,12 +18,19 @@ namespace pylorak.TinyWall
         private readonly TinyWallController Controller;
         private readonly AsyncIconScanner IconScanner;
         private readonly Size IconSize = new((int)Math.Round(16 * Utils.DpiScalingFactor), (int)Math.Round(16 * Utils.DpiScalingFactor));
+        private readonly DarkModeCS? DarkMode;
+        private readonly WmPaintFilter? ListRepaintFilter;
         private bool EnableListUpdate = false;
 
         internal ConnectionsForm(TinyWallController ctrl)
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
+            if (Utils.IsDarkModeActive(ActiveConfig.Controller))
+            {
+                this.DarkMode = new(this, false) { ColorMode = DarkModeCS.DisplayMode.DarkMode };
+                this.ListRepaintFilter = new WmPaintFilter(list);
+            }
             this.IconList.ImageSize = IconSize;
             this.Icon = Resources.Icons.firewall;
             this.Controller = ctrl;
@@ -32,7 +40,7 @@ namespace pylorak.TinyWall
             this.IconList.Images.Add("store", Resources.Icons.store);
             this.IconList.Images.Add("system", Resources.Icons.windows_small);
             this.IconList.Images.Add("network-drive", Resources.Icons.network_drive_small);
-            this.IconScanner = new AsyncIconScanner((ListViewItem li) => { return (li.Tag as ProcessInfo)!.Path; }, IconList.Images.IndexOfKey(TEMP_ICON_KEY));
+            this.IconScanner = new AsyncIconScanner(lvi => { return (lvi.Tag as ProcessInfo)!.Path; }, IconList.Images.IndexOfKey(TEMP_ICON_KEY));
         }
 
         private void btnClose_Click(object sender, EventArgs e)
@@ -118,6 +126,10 @@ namespace pylorak.TinyWall
             // Show log entries if requested by user
             if (chkShowBlocked.Checked)
             {
+                // Preconstruct a constant value we might use many times. We force an IPv6-address simply because
+                // we like its string representation (::) more than the IPv4 equivalent (0.0.0.0).
+                var unspecifiedEndpoint = new IPEndPoint(new IPAddress(new byte[16]), 0);
+
                 // Try to resolve PIDs heuristically
                 var ProcessPathInfoMap = new Dictionary<string, List<ProcessSnapshotEntry>>();
                 foreach (var p in ProcessManager.CreateToolhelp32SnapshotExtended())
@@ -155,40 +167,25 @@ namespace pylorak.TinyWall
                     if (span > refSpan)
                         continue;
 
-                    switch (newEntry.Event)
+                    // This is a list of blocked applications, so only list each application once
+                    // with its most recent block for the same filter group.
+                    // Input list is presumed to be sorted in ascending order by timestamp.
+                    if (newEntry.Event == FirewallLogEvent.ClassifyDrop)
                     {
-                        case EventLogEvent.ALLOWED_LISTEN:
-                        case EventLogEvent.ALLOWED_CONNECTION:
-                        case EventLogEvent.ALLOWED_LOCAL_BIND:
-                        case EventLogEvent.ALLOWED:
+                        bool matchFound = false;
+                        for (int j = 0; j < filteredLog.Count; ++j)
+                        {
+                            FirewallLogEntry oldEntry = filteredLog[j];
+                            if (oldEntry.Equals(newEntry, false))
                             {
-                                newEntry.Event = EventLogEvent.ALLOWED;
+                                matchFound = true;
+                                oldEntry.Timestamp = newEntry.Timestamp;
                                 break;
                             }
-                        case EventLogEvent.BLOCKED_LISTEN:
-                        case EventLogEvent.BLOCKED_CONNECTION:
-                        case EventLogEvent.BLOCKED_LOCAL_BIND:
-                        case EventLogEvent.BLOCKED_PACKET:
-                        case EventLogEvent.BLOCKED:
-                            {
-                                bool matchFound = false;
-                                newEntry.Event = EventLogEvent.BLOCKED;
+                        }
 
-                                for (int j = 0; j < filteredLog.Count; ++j)
-                                {
-                                    FirewallLogEntry oldEntry = filteredLog[j];
-                                    if (oldEntry.Equals(newEntry, false))
-                                    {
-                                        matchFound = true;
-                                        oldEntry.Timestamp = newEntry.Timestamp;
-                                        break;
-                                    }
-                                }
-
-                                if (!matchFound)
-                                    filteredLog.Add(newEntry);
-                                break;
-                            }
+                        if (!matchFound)
+                            filteredLog.Add(newEntry);
                     }
                 }
 
@@ -204,7 +201,21 @@ namespace pylorak.TinyWall
                     entry.AppPath = Utils.GetExactPath(entry.AppPath);
 
                     var pi = ProcessInfo.Create(entry.ProcessId, entry.AppPath ?? string.Empty, entry.PackageId, packageList, servicePids);
-                    ConstructListItem(itemColl, pi, entry.Protocol.ToString(), new IPEndPoint(IPAddress.Parse(entry.LocalIp), entry.LocalPort), new IPEndPoint(IPAddress.Parse(entry.RemoteIp), entry.RemotePort), "Blocked", entry.Timestamp, entry.Direction);
+
+                    var blockedReasonText = entry.FilterGroup switch
+                    {
+                        FilterGroup.DefaultAction => Resources.Messages.FilterGroupDefaultAction,
+                        FilterGroup.PortScan => Resources.Messages.FilterGroupPortScan,
+                        FilterGroup.RawSocket => Resources.Messages.FilterGroupRawSocket,
+                        FilterGroup.Blocklist => Resources.Messages.FilterGroupBlocklist,
+                        FilterGroup.User => Resources.Messages.FilterGroupUser,
+                        FilterGroup.ExternalApp => Resources.Messages.FilterGroupExternalApp,
+                        _ => "???"
+                    };
+                    var blockedStateText = string.Format(Resources.Messages.ConnectionsBlockedEntryTemplate, blockedReasonText);
+                    var localEndPoint = entry.LocalIp is null ? unspecifiedEndpoint : new IPEndPoint(new IPAddress(entry.LocalIp), entry.LocalPort);
+                    var remoteEndPoint = entry.RemoteIp is null ? unspecifiedEndpoint : new IPEndPoint(new IPAddress(entry.RemoteIp), entry.RemotePort);
+                    ConstructListItem(itemColl, pi, entry.Protocol.ToString(), localEndPoint, remoteEndPoint, blockedStateText, entry.Timestamp, entry.Direction);
                 }
             }
 
@@ -225,9 +236,7 @@ namespace pylorak.TinyWall
                 // Construct list item
                 string name = e.Package.HasValue ? e.Package.Value.Name : System.IO.Path.GetFileName(e.Path);
                 string title = (e.Pid != 0) ? $"{name} ({e.Pid})" : $"{name}";
-                ListViewItem li = new(title);
-                li.Tag = e;
-                li.ToolTipText = e.Path;
+                ListViewItem li = new(title) { Tag = e, ToolTipText = e.Path };
 
                 // Add icon
                 if (e.Package.HasValue)
@@ -256,7 +265,6 @@ namespace pylorak.TinyWall
                 li.SubItems.Add(localEP.Address.ToString());
                 li.SubItems.Add(remoteEP.Port.ToString(CultureInfo.InvariantCulture).PadLeft(5));
                 li.SubItems.Add(remoteEP.Address.ToString());
-                li.SubItems.Add(state);
                 switch (dir)
                 {
                     case RuleDirection.In:
@@ -269,6 +277,7 @@ namespace pylorak.TinyWall
                         li.SubItems.Add(string.Empty);
                         break;
                 }
+                li.SubItems.Add(state);
                 li.SubItems.Add(ts.ToString("yyyy/MM/dd HH:mm:ss"));
                 itemColl.Add(li);
             }
@@ -451,7 +460,7 @@ namespace pylorak.TinyWall
                 const string urlTemplate = @"https://www.virustotal.com/latest-scan/{0}";
                 string hash = Hasher.HashFile(((ProcessInfo)li.Tag).Path);
                 string url = string.Format(CultureInfo.InvariantCulture, urlTemplate, hash);
-                Utils.StartProcess(url, string.Empty, false);
+                Utils.StartProcessAndForget(url, string.Empty, false);
             }
             catch
             {
@@ -460,22 +469,6 @@ namespace pylorak.TinyWall
             }
         }
 
-        private void mnuProcessLibrary_Click(object sender, EventArgs e)
-        {
-            try
-            {
-                ListViewItem li = list.SelectedItems[0];
-
-                const string urlTemplate = @"http://www.processlibrary.com/search/?q={0}";
-                string filename = System.IO.Path.GetFileName(((ProcessInfo)li.Tag).Path);
-                string url = string.Format(CultureInfo.InvariantCulture, urlTemplate, filename);
-                Utils.StartProcess(url, string.Empty, false);
-            }
-            catch
-            {
-                MessageBox.Show(this, Resources.Messages.CannotGetPathOfProcess, Resources.Messages.TinyWall, MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
-            }
-        }
         private void mnuFileNameOnTheWeb_Click(object sender, EventArgs e)
         {
             try
@@ -485,7 +478,7 @@ namespace pylorak.TinyWall
                 const string urlTemplate = @"www.google.com/search?q={0}";
                 string filename = System.IO.Path.GetFileName(((ProcessInfo)li.Tag).Path);
                 string url = string.Format(CultureInfo.InvariantCulture, urlTemplate, filename);
-                Utils.StartProcess(url, string.Empty, false);
+                Utils.StartProcessAndForget(url, string.Empty, false);
             }
             catch
             {
@@ -502,7 +495,7 @@ namespace pylorak.TinyWall
                 const string urlTemplate = @"www.google.com/search?q={0}";
                 string address = li.SubItems[6].Text;
                 string url = string.Format(CultureInfo.InvariantCulture, urlTemplate, address);
-                Utils.StartProcess(url, string.Empty, false);
+                Utils.StartProcessAndForget(url, string.Empty, false);
             }
             catch
             {
@@ -517,6 +510,30 @@ namespace pylorak.TinyWall
                 btnRefresh_Click(btnRefresh, EventArgs.Empty);
                 e.Handled = true;
             }
+        }
+
+        private void mnuCopyPath_Click(object sender, EventArgs e)
+        {
+            var li = list.SelectedItems[0];
+            var clipboardData = (li.Tag as ProcessInfo)!.Path;
+
+            var dataObject = new DataObject();
+            dataObject.SetData(DataFormats.UnicodeText, false, clipboardData);
+            try
+            {
+                Clipboard.SetDataObject(dataObject, true, 20, 100);
+            }
+            catch
+            {
+                // Fail silently :(
+            }
+        }
+
+        private void mnuOpenFolder_Click(object sender, EventArgs e)
+        {
+            var li = list.SelectedItems[0];
+            var folderPath = System.IO.Path.GetDirectoryName((li.Tag as ProcessInfo)!.Path);
+            Utils.StartProcessAndForget(folderPath, string.Empty, false);
         }
     }
 }

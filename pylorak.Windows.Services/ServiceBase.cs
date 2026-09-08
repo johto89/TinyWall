@@ -74,12 +74,7 @@ namespace pylorak.Windows.Services
         {
             get
             {
-                if (_EventLog == null)
-                {
-                    _EventLog = new EventLog();
-                    _EventLog.Source = ServiceName;
-                    _EventLog.Log = "Application";
-                }
+                _EventLog ??= new EventLog { Source = ServiceName, Log = "Application" };
                 return _EventLog;
             }
         }
@@ -207,7 +202,7 @@ namespace pylorak.Windows.Services
                     }
                     break;
                 case ServiceState.StopPending:
-                    if ( (CurrentState == ServiceState.Running) || (CurrentState == ServiceState.Paused) )
+                    if ((CurrentState == ServiceState.Running) || (CurrentState == ServiceState.Paused))
                     {
                         PreviousState = CurrentState;
                         SetServiceStatePending(newState);
@@ -319,9 +314,7 @@ namespace pylorak.Windows.Services
             if (!Enum.IsDefined(typeof(PowerEventType), eventType))
                 return;
 
-            var ped = new PowerEventData();
-            ped.Event = (PowerEventType)eventType;
-
+            var ped = new PowerEventData { Event = (PowerEventType)eventType };
             if (ped.Event == PowerEventType.PowerSettingChange)
             {
                 var data0 = Marshal.PtrToStructure<POWERBROADCAST_SETTING_NODATA>(eventData);
@@ -341,9 +334,7 @@ namespace pylorak.Windows.Services
             if (!Enum.IsDefined(typeof(DeviceEventType), eventType))
                 return;
 
-            var ded = new DeviceEventData();
-            ded.Event = (DeviceEventType)eventType;
-
+            var ded = new DeviceEventData { Event = (DeviceEventType)eventType };
             var hdr = Marshal.PtrToStructure<DEV_BROADCAST_HDR>(eventData);
             ded.DeviceType = hdr.DeviceType;
             switch (ded.DeviceType)
@@ -495,7 +486,7 @@ namespace pylorak.Windows.Services
             }
             catch (Exception e)
             {
-                WriteEventLogEntry($"Service failed to continue. {e.Message}", EventLogEntryType.Error);
+                WriteEventLogEntry($"Service failed to pause. {e.Message}", EventLogEntryType.Error);
                 FailStateChange(Status.win32ExitCode, Status.serviceSpecificExitCode);
 
                 // We re-throw the exception so that the advapi32 code can report
@@ -581,7 +572,7 @@ namespace pylorak.Windows.Services
                 if (AutoLog)
                     EventLog.WriteEntry(message, errorType);
             }
-#region Stuff not to catch
+            #region Stuff not to catch
             catch (StackOverflowException)
             {
                 throw;
@@ -594,7 +585,7 @@ namespace pylorak.Windows.Services
             {
                 throw;
             }
-#endregion
+            #endregion
             catch { }
         }
 
@@ -617,7 +608,7 @@ namespace pylorak.Windows.Services
                 StoppedEventHandle.Close();
                 StartedEventHandle.Close();
             }
-            
+
             disposed = true;
         }
 
@@ -659,7 +650,7 @@ namespace pylorak.Windows.Services
                 Exception e = errCode switch
                 {
                     ERROR_FAILED_SERVICE_CONTROLLER_CONNECT => new InvalidOperationException("Cannot run service code as a non-service process (ERROR_FAILED_SERVICE_CONTROLLER_CONNECT)."),
-                    ERROR_SERVICE_ALREADY_RUNNING => new InvalidOperationException("The process alerady registered a service control dispatcher (ERROR_SERVICE_ALREADY_RUNNING)."),
+                    ERROR_SERVICE_ALREADY_RUNNING => new InvalidOperationException("The process already registered a service control dispatcher (ERROR_SERVICE_ALREADY_RUNNING)."),
                     _ => new Win32Exception(errCode),
                 };
                 if (Environment.UserInteractive)

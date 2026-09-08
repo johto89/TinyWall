@@ -44,7 +44,7 @@ namespace pylorak.Windows
                 else
                 {
                     _ = NativeMethods.RegNotifyChangeKeyValue(WatchedKeys[evIdx].DangerousGetHandle(), WatchSubTree, NotifyFilter, EventHandles[evIdx].SafeWaitHandle.DangerousGetHandle(), true);
-                    if (Enabled) 
+                    if (Enabled)
                         RegistryChanged?.Invoke(this, EventArgs.Empty);
                 }
             }
@@ -80,9 +80,11 @@ namespace pylorak.Windows
             }
             EventHandles[i] = StopEvent;
 
-            WatcherThread = new Thread(WatcherProc);
-            WatcherThread.Name = "RegistryWatcher";
-            WatcherThread.IsBackground = true;
+            WatcherThread = new Thread(WatcherProc)
+            {
+                Name = "RegistryWatcher",
+                IsBackground = true
+            };
             WatcherThread.Start();
         }
 

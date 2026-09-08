@@ -201,9 +201,7 @@ namespace pylorak.Windows.WFP
                         }
                         Array.Reverse(addressBytes);
 
-                        var addrAndMask4 = new Interop.FWP_V4_ADDR_AND_MASK();
-                        addrAndMask4.addr = BitConverter.ToUInt32(addressBytes, 0);
-                        addrAndMask4.mask = maskBits;
+                        var addrAndMask4 = new Interop.FWP_V4_ADDR_AND_MASK { addr = BitConverter.ToUInt32(addressBytes, 0), mask = maskBits };
                         nativeMem = SafeHGlobalHandle.FromStruct(addrAndMask4);
 
                         _nativeStruct.conditionValue.type = Interop.FWP_DATA_TYPE.FWP_V4_ADDR_MASK;
@@ -256,7 +254,7 @@ namespace pylorak.Windows.WFP
             base.Dispose(disposing);
         }
     }
-    
+
     public sealed class PortFilterCondition : FilterCondition
     {
         private SafeHGlobalHandle? rangeNativeMem;
@@ -376,7 +374,7 @@ namespace pylorak.Windows.WFP
             [DllImport("FWPUClnt.dll", EntryPoint = "FwpmGetAppIdFromFileName0")]
             [ReliabilityContract(Consistency.WillNotCorruptState, Cer.MayFail)]
             internal static extern uint FwpmGetAppIdFromFileName0(
-                [MarshalAs(UnmanagedType.LPWStr), In]  string fileName,
+                [MarshalAs(UnmanagedType.LPWStr), In] string fileName,
                 [Out] out FwpmMemorySafeHandle appId);
         }
 
@@ -573,7 +571,7 @@ namespace pylorak.Windows.WFP
         public UserIdFilterCondition(string sid, RemoteOrLocal peer)
             : base((RemoteOrLocal.Local == peer) ? ConditionKeys.FWPM_CONDITION_ALE_USER_ID : ConditionKeys.FWPM_CONDITION_ALE_REMOTE_USER_ID,
                   FieldMatchType.FWP_MATCH_EQUAL,
-                  $"O:LSD:(A;;CC;;;{sid}))")
+                  $"O:LSD:(A;;CC;;;{sid})")
         {
         }
     }

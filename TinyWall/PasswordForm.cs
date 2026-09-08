@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DarkModeForms;
+using System;
 using System.Windows.Forms;
 
 namespace pylorak.TinyWall
@@ -6,11 +7,23 @@ namespace pylorak.TinyWall
     internal partial class PasswordForm : Form
     {
         internal string PassHash { get; private set; } = string.Empty;
+        private readonly DarkModeCS? DarkMode;
 
         internal PasswordForm()
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
+            try
+            {
+                if (Utils.IsDarkModeActive(ActiveConfig.Controller))
+                    this.DarkMode = new(this, false) { ColorMode = DarkModeCS.DisplayMode.DarkMode };
+            }
+            catch {
+                // PasswordForm can be shown during uninstall (if TinyWall is locked), and ActiveConfig.Controller will be null
+                // and throw a NullReferenceExcpetion. We on purpose suppress all exceptions instead of doing a targeted null-check.
+                // Being unable to activate dark mode isn't critical and really no errors that happen here should prevent the
+                // form from working due to the possible installer context, so this is more robust.
+            }
             this.btnOK.Image = GlobalInstances.ApplyBtnIcon;
             this.btnCancel.Image = GlobalInstances.CancelBtnIcon;
         }

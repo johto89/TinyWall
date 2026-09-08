@@ -1,18 +1,13 @@
 ﻿using System;
+using System.Collections;
 
 namespace pylorak.TinyWall
 {
-    public enum EventLogEvent
+    public enum FirewallLogEvent
     {
-        BLOCKED,
-        ALLOWED,
-        ALLOWED_LISTEN = 5154,
-        ALLOWED_CONNECTION = 5156,
-        ALLOWED_LOCAL_BIND = 5158,
-        BLOCKED_LISTEN = 5155,
-        BLOCKED_CONNECTION = 5157,
-        BLOCKED_PACKET = 5152,
-        BLOCKED_LOCAL_BIND = 5159
+        Invalid,
+        ClassifyAllow,
+        ClassifyDrop
     }
 
     [Flags]
@@ -27,16 +22,17 @@ namespace pylorak.TinyWall
     public sealed record FirewallLogEntry : IEquatable<FirewallLogEntry>
     {
         public DateTime Timestamp;
-        public EventLogEvent Event;
+        public FirewallLogEvent Event;
         public uint ProcessId;
         public Protocol Protocol;
         public RuleDirection Direction;
-        public string? LocalIp;
-        public string? RemoteIp;
+        public byte[]? LocalIp;
+        public byte[]? RemoteIp;
         public int LocalPort;
         public int RemotePort;
         public string? AppPath;
         public string? PackageId;
+        public FilterGroup FilterGroup;
 
         public int GetHashCode(bool includeTimestamp)
         {
@@ -53,15 +49,16 @@ namespace pylorak.TinyWall
                 hash = (hash ^ Protocol.GetHashCode()) * FNV_PRIME;
                 hash = (hash ^ Direction.GetHashCode()) * FNV_PRIME;
                 if (LocalIp is not null)
-                    hash = (hash ^ LocalIp.GetHashCode()) * FNV_PRIME;
+                    hash = (hash ^ Utils.GetArrayHashCode(LocalIp)) * FNV_PRIME;
                 if (RemoteIp is not null)
-                    hash = (hash ^ RemoteIp.GetHashCode()) * FNV_PRIME;
+                    hash = (hash ^ Utils.GetArrayHashCode(RemoteIp)) * FNV_PRIME;
                 hash = (hash ^ LocalPort.GetHashCode()) * FNV_PRIME;
                 hash = (hash ^ RemotePort.GetHashCode()) * FNV_PRIME;
                 if (AppPath is not null)
                     hash = (hash ^ AppPath.GetHashCode()) * FNV_PRIME;
                 if (PackageId is not null)
                     hash = (hash ^ PackageId.GetHashCode()) * FNV_PRIME;
+                hash = (hash ^ FilterGroup.GetHashCode()) * FNV_PRIME;
 
                 return hash;
             }
@@ -83,12 +80,13 @@ namespace pylorak.TinyWall
                 (ProcessId == obj.ProcessId) &&
                 (Protocol == obj.Protocol) &&
                 (Direction == obj.Direction) &&
-                string.Equals(LocalIp, obj.LocalIp) &&
-                string.Equals(RemoteIp, obj.RemoteIp) &&
+                StructuralComparisons.StructuralEqualityComparer.Equals(LocalIp, obj.LocalIp) &&
+                StructuralComparisons.StructuralEqualityComparer.Equals(RemoteIp, obj.RemoteIp) &&
                 (LocalPort == obj.LocalPort) &&
                 (RemotePort == obj.RemotePort) &&
                 string.Equals(AppPath, obj.AppPath) &&
-                string.Equals(PackageId, obj.PackageId);
+                string.Equals(PackageId, obj.PackageId) &&
+                FilterGroup == obj.FilterGroup;
         }
 
         public bool Equals(FirewallLogEntry? other)

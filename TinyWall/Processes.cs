@@ -1,11 +1,13 @@
-﻿using System;
-using System.Drawing;
+﻿using DarkModeForms;
+using pylorak.Utilities;
+using pylorak.Windows;
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Windows.Forms;
+using System.Drawing;
 using System.Linq;
-using pylorak.Windows;
-using pylorak.Utilities;
+using System.Windows.Forms;
 
 namespace pylorak.TinyWall
 {
@@ -14,11 +16,18 @@ namespace pylorak.TinyWall
         internal readonly List<ProcessInfo> Selection = new();
         private readonly AsyncIconScanner IconScanner;
         private readonly Size IconSize = new((int)Math.Round(16 * Utils.DpiScalingFactor), (int)Math.Round(16 * Utils.DpiScalingFactor));
+        private readonly DarkModeCS? DarkMode;
+        private readonly WmPaintFilter? ListRepaintFilter;
 
         internal ProcessesForm(bool multiSelect)
         {
             InitializeComponent();
             Utils.SetRightToLeft(this);
+            if (Utils.IsDarkModeActive(ActiveConfig.Controller))
+            {
+                this.DarkMode = new(this, false) { ColorMode = DarkModeCS.DisplayMode.DarkMode };
+                this.ListRepaintFilter = new WmPaintFilter(listView);
+            }
             this.IconList.ImageSize = IconSize;
             this.listView.MultiSelect = multiSelect;
             this.Icon = Resources.Icons.firewall;
@@ -30,7 +39,7 @@ namespace pylorak.TinyWall
             this.IconList.Images.Add("store", Resources.Icons.store);
             this.IconList.Images.Add("system", Resources.Icons.windows_small);
             this.IconList.Images.Add("network-drive", Resources.Icons.network_drive_small);
-            this.IconScanner = new AsyncIconScanner((ListViewItem li) => { return (li.Tag as ProcessInfo)!.Path; }, IconList.Images.IndexOfKey(TEMP_ICON_KEY));
+            this.IconScanner = new AsyncIconScanner(lvi => { return (lvi.Tag as ProcessInfo)!.Path; }, IconList.Images.IndexOfKey(TEMP_ICON_KEY));
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
